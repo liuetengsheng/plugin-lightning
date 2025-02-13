@@ -1,5 +1,5 @@
 {
-    "name": "@elizaos/plugin-lightning",
+    "name": "@elizaos-plugins/plugin-lightning",
     "version": "0.1.9",
     "type": "module",
     "main": "dist/index.js",
@@ -19,7 +19,6 @@
         "dist"
     ],
     "dependencies": {
-        "@elizaos/core": "workspace:*",
         "@elizaos/plugin-tee": "workspace:*",
         "astra-lightning": "^1.1.0"
     },
