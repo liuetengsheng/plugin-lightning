@@ -32,5 +32,28 @@
     },
     "peerDependencies": {
         "whatwg-url": "7.1.0"
+    },
+    "agentConfig": {
+        "pluginType": "elizaos:client:1.0.0",
+        "pluginParameters": {
+            "LND_TLS_CERT": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Base64 of LND certificate",
+                "optional": false
+            },
+            "LND_MACAROON": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Base64 encoded admin.macaroon file",
+                "optional": false
+            },
+            "LND_SOCKET": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The LND node's socket address",
+                "optional": false
+            }
+        }
     }
 }
