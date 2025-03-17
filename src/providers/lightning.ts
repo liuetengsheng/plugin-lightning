@@ -101,10 +101,11 @@ export class LightningProvider {
                 throw new Error("Either channel id or transaction details (id and vout) are required");
             }
             
-            return await closeChannel({
+            const result = await closeChannel({
                 lnd: this.lndClient,
                 ...args
             });
+            return result;
         } catch (error) {
             throw new Error(`Failed to close channel: ${error.message}`);
         }
