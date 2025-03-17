@@ -246,7 +246,7 @@ import {
   elizaLogger as elizaLogger3
 } from "@elizaos/core";
 
-// ../../node_modules/zod/lib/index.mjs
+// ../../node_modules/.pnpm/zod@3.24.1/node_modules/zod/lib/index.mjs
 var util;
 (function(util2) {
   util2.assertEqual = (val) => val;
@@ -4328,8 +4328,7 @@ var PayInvoiceAction = class {
   }
 };
 var payInvoiceSchema = z.object({
-  request: z.string(),
-  outgoing_channel: z.string()
+  request: z.string()
 });
 var payInvoiceAction = {
   name: "PAY_INVOICE",
@@ -4350,12 +4349,11 @@ var payInvoiceAction = {
     });
     const payInvoiceContent = content.object;
     const payInvoiceOptions = {
-      request: payInvoiceContent.request,
-      outgoing_channel: payInvoiceContent.outgoing_channel
+      request: payInvoiceContent.request
     };
     try {
       const payInvoiceResp = await action.payInvoice(payInvoiceOptions);
-      elizaLogger3.log("\u{1F680} ~ payInvoiceResp:", payInvoiceResp);
+      elizaLogger3.log("\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD ~ payInvoiceResp:", payInvoiceResp);
       if (callback) {
         if (payInvoiceResp.is_confirmed) {
           callback({
