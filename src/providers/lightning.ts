@@ -100,12 +100,38 @@ export class LightningProvider {
             if (!args.id && !(args.transaction_id && args.transaction_vout)) {
                 throw new Error("Either channel id or transaction details (id and vout) are required");
             }
-            
-            const result = await closeChannel({
+
+            // 构造基础参数
+            const baseArgs = {
                 lnd: this.lndClient,
-                ...args
-            });
-            return result;
+                ...(args.id ? { id: args.id } : {}),
+                ...(args.transaction_id && args.transaction_vout ? {
+                    transaction_id: args.transaction_id,
+                    transaction_vout: args.transaction_vout
+                } : {})
+            };
+
+            // 根据关闭方式构造不同的参数
+            const closeArgs = args.is_force_close ? {
+                ...baseArgs,
+                is_force_close: true,
+                ...(args.address ? { address: args.address } : {}),
+                ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
+                ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
+                ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
+            } : {
+                ...baseArgs,
+                is_force_close: false,
+                ...(args.is_graceful_close ? { is_graceful_close: true } : {}),
+                ...(args.address ? { address: args.address } : {}),
+                ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
+                ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
+                ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
+                ...(args.public_key ? { public_key: args.public_key } : {}),
+                ...(args.socket ? { socket: args.socket } : {})
+            };
+
+            return await closeChannel(closeArgs);
         } catch (error) {
             throw new Error(`Failed to close channel: ${error.message}`);
         }
