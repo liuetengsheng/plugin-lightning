@@ -19,7 +19,7 @@
         "dist"
     ],
     "dependencies": {
-        "@elizaos/plugin-tee": "workspace:*",
+        "@elizaos-plugins/plugin-tee": "workspace:*",
         "astra-lightning": "^1.1.0"
     },
     "devDependencies": {

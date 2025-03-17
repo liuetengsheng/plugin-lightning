@@ -58,7 +58,6 @@ export class PayInvoiceAction {
 // Define the schema type
 const payInvoiceSchema = z.object({
     request: z.string(),
-    outgoing_channel: z.string()
 });
 
 type PayInvoiceContent = z.infer<typeof payInvoiceSchema>;
@@ -96,12 +95,11 @@ export const payInvoiceAction = {
 
         const payInvoiceOptions: PayArgs = {
             request: payInvoiceContent.request,
-            outgoing_channel: payInvoiceContent.outgoing_channel,
         };
 
         try {
             const payInvoiceResp = await action.payInvoice(payInvoiceOptions);
-            elizaLogger.log("ðŸš€ ~ payInvoiceResp:", payInvoiceResp);
+            elizaLogger.log("í ½íº€ ~ payInvoiceResp:", payInvoiceResp);
 
             if (callback) {
                 if (payInvoiceResp.is_confirmed) {
