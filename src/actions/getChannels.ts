@@ -23,42 +23,44 @@ export class GetChannelsAction {
 
     async getChannels(params: GetChannelsArgs = {}): Promise<{ channels: Channel[] }> {
         const { channels } = await this.lightningProvider.getLndChannel();
-        
+        elizaLogger.info(`getLndChannel called with args: ${JSON.stringify(params)}`);
+        elizaLogger.info(`getLndChannel called with args: ${JSON.stringify(channels)}`);
         // 应用过滤条件
         let filteredChannels = channels;
         
+        // 如果明确指定了 is_active，则直接使用；否则如果指定了 is_offline，则取反过滤
         if (params.is_active !== undefined) {
-            filteredChannels = filteredChannels.filter(
-                channel => channel.is_active === params.is_active
-            );
-        }
-        
-        if (params.is_offline !== undefined) {
-            filteredChannels = filteredChannels.filter(
-                channel => !channel.is_active === params.is_offline
-            );
+          filteredChannels = filteredChannels.filter(
+            channel => channel.is_active === params.is_active
+          );
+        } else if (params.is_offline !== undefined) {
+          // 如果 is_offline 为 true，表示 offline，即 channel.is_active 应该为 false
+          filteredChannels = filteredChannels.filter(
+            channel => channel.is_active === !params.is_offline
+          );
         }
         
         if (params.is_private !== undefined) {
-            filteredChannels = filteredChannels.filter(
-                channel => channel.is_private === params.is_private
-            );
+          filteredChannels = filteredChannels.filter(
+            channel => channel.is_private === params.is_private
+          );
         }
         
         if (params.is_public !== undefined) {
-            filteredChannels = filteredChannels.filter(
-                channel => !channel.is_private === params.is_public
-            );
+          // is_public 为 true 表示 channel 公开，即 is_private === false
+          filteredChannels = filteredChannels.filter(
+            channel => channel.is_private === !params.is_public
+          );
         }
         
         if (params.partner_public_key) {
-            filteredChannels = filteredChannels.filter(
-                channel => channel.partner_public_key === params.partner_public_key
-            );
+          filteredChannels = filteredChannels.filter(
+            channel => channel.partner_public_key === params.partner_public_key
+          );
         }
-
+      
         return { channels: filteredChannels };
-    }
+      }      
 }
 
 // 定义 schema 类型
