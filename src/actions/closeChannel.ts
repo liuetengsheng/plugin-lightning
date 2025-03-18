@@ -25,18 +25,22 @@ export class CloseChannelAction {
         try {
             // 验证基本参数
             if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+                elizaLogger.error("Missing required parameters", {
+                    id: args.id,
+                    transaction_id: args.transaction_id,
+                    transaction_vout: args.transaction_vout
+                });
                 throw new Error("Either channel id or transaction details are required");
             }
 
             // 验证协作关闭所需的参数
             if (!args.is_force_close && (!args.public_key || !args.socket)) {
+                elizaLogger.error("Missing parameters for cooperative close", {
+                    public_key: args.public_key,
+                    socket: args.socket
+                });
                 throw new Error("Cooperative close requires public_key and socket");
             }
-
-            elizaLogger.info("Closing channel:", {
-                id: args.id || `${args.transaction_id}:${args.transaction_vout}`,
-                type: args.is_force_close ? "force" : "cooperative"
-            });
             
             const result = await this.lightningProvider.closeChannel({
                 ...args,
@@ -44,11 +48,16 @@ export class CloseChannelAction {
             });
 
             elizaLogger.info("Channel closed:", { 
-                transaction_id: result.transaction_id 
+                transaction_id: result.transaction_id,
+                type: args.is_force_close ? "force" : "cooperative" 
             });
             return result;
         } catch (error) {
-            elizaLogger.error("Close channel failed:", error);
+            elizaLogger.error("Close channel failed:", {
+                error: error.message,
+                stack: error.stack,
+                channel: args.id || `${args.transaction_id}:${args.transaction_vout}`
+            });
             throw error;
         }
     }
@@ -95,7 +104,7 @@ export const closeChannelAction = {
         try {
             const lightningProvider = await initLightningProvider(runtime);
             const action = new CloseChannelAction(lightningProvider);
-
+            
             const closeChannelContext = composeContext({
                 state,
                 template: closeChannelTemplate,
@@ -138,7 +147,10 @@ export const closeChannelAction = {
             }
             return true;
         } catch (error) {
-            elizaLogger.error("Channel close failed:", error);
+            elizaLogger.error("Channel close failed:", {
+                error: error.message,
+                params: _message
+            });
             if (callback) {
                 callback({
                     text: `Error: ${error.message || "An error occurred"}`

@@ -24,12 +24,15 @@ export class GetChainBalanceAction {
     async getChainBalance(): Promise<GetChainBalanceResult> {
         try {
             const result = await this.lightningProvider.getChainBalance();
-            elizaLogger.info("Chain balance:", {
+            elizaLogger.info("Chain balance retrieved:", {
                 balance: result.chain_balance
             });
             return result;
         } catch (error) {
-            elizaLogger.error("Get chain balance failed:", error);
+            elizaLogger.error("Get chain balance failed:", {
+                error: error.message,
+                stack: error.stack
+            });
             throw error;
         }
     }

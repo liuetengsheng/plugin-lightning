@@ -19,28 +19,23 @@ export { createInvoiceTemplate };
 export class CreateInvoiceAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.info("CreateInvoiceAction initialized");
     }
 
-    async createInvoice(
-        params: CreateInvoiceArgs,
-    ): Promise<CreateInvoiceResult> {
-        elizaLogger.info("CreateInvoiceAction.createInvoice called with params:", params);
+    async createInvoice(params: CreateInvoiceArgs): Promise<CreateInvoiceResult> {
         if (!params.tokens) {
-            elizaLogger.error("CreateInvoiceAction.createInvoice validation failed: tokens is required");
+            elizaLogger.error("CreateInvoice validation failed: tokens is required");
             throw new Error("tokens is required.");
         }
         try {
-            const retCreateInvoice =
-                await this.lightningProvider.createInvoice(params);
-            elizaLogger.info("CreateInvoiceAction.createInvoice result:", {
+            const retCreateInvoice = await this.lightningProvider.createInvoice(params);
+            elizaLogger.info("Invoice created:", {
                 tokens: retCreateInvoice.tokens,
                 request: retCreateInvoice.request,
                 id: retCreateInvoice.id
             });
             return retCreateInvoice;
         } catch (error) {
-            elizaLogger.error("CreateInvoiceAction.createInvoice error:", {
+            elizaLogger.error("CreateInvoice error:", {
                 error: error.message,
                 stack: error.stack,
                 params

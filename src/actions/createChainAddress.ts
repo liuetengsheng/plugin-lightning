@@ -23,7 +23,6 @@ export class CreateChainAddressAction {
 
     async createChainAddress(params: CreateChainAddressArgs): Promise<CreateChainAddressResult> {
         try {
-            // 验证参数格式
             if (params.format && !["p2wpkh", "np2wpkh", "p2tr"].includes(params.format)) {
                 elizaLogger.error("Invalid address format", {
                     format: params.format,
@@ -34,11 +33,16 @@ export class CreateChainAddressAction {
 
             const result = await this.lightningProvider.createChainAddress(params);
             elizaLogger.info("Chain address created:", {
+                address: result.address,
                 format: params.format || "p2wpkh"
             });
             return result;
         } catch (error) {
-            elizaLogger.error("Create chain address failed:", error);
+            elizaLogger.error("Create chain address failed:", {
+                error: error.message,
+                stack: error.stack,
+                params
+            });
             throw error;
         }
     }

@@ -44,9 +44,11 @@ export class LightningProvider {
                 socket: socket,
             });
             this.lndClient = lnd;
-            elizaLogger.info("LND client initialized");
         } catch (error) {
-            elizaLogger.error("LND client initialization failed:", error);
+            elizaLogger.error("LND client initialization failed:", {
+                error: error.message,
+                stack: error.stack
+            });
             throw error;
         }
     }
@@ -54,10 +56,13 @@ export class LightningProvider {
     async getLndIdentity(): Promise<GetIdentityResult> {
         try {
             const result = await getIdentity({ lnd: this.lndClient });
-            elizaLogger.info("Node identity:", { public_key: result.public_key });
+            elizaLogger.info("Node identity retrieved:", { public_key: result.public_key });
             return result;
         } catch (error) {
-            elizaLogger.error("Get identity failed:", error);
+            elizaLogger.error("Get identity failed:", {
+                error: error.message,
+                stack: error.stack
+            });
             throw error;
         }
     }
@@ -68,13 +73,17 @@ export class LightningProvider {
                 lnd: this.lndClient,
                 ...args
             });
-            elizaLogger.info("Channels status:", {
+            elizaLogger.info("Channels retrieved:", {
                 total: result.channels.length,
                 active: result.channels.filter(c => c.is_active).length
             });
             return result;
         } catch (error) {
-            elizaLogger.error("Get channels failed:", error);
+            elizaLogger.error("Get channels failed:", {
+                error: error.message,
+                stack: error.stack,
+                args
+            });
             throw error;
         }
     }
@@ -85,10 +94,17 @@ export class LightningProvider {
                 lnd: this.lndClient,
                 ...createInvoiceArgs,
             });
-            elizaLogger.info("Invoice created:", { tokens: result.tokens });
+            elizaLogger.info("Invoice created:", {
+                tokens: result.tokens,
+                id: result.id
+            });
             return result;
         } catch (error) {
-            elizaLogger.error("Create invoice failed:", error);
+            elizaLogger.error("Create invoice failed:", {
+                error: error.message,
+                stack: error.stack,
+                args: createInvoiceArgs
+            });
             throw error;
         }
     }
@@ -101,125 +117,66 @@ export class LightningProvider {
             });
             elizaLogger.info("Payment completed:", {
                 tokens: result.tokens,
-                fee: result.fee
+                fee: result.fee,
+                id: result.id
             });
             return result;
         } catch (error) {
-            elizaLogger.error("Payment failed:", error);
+            elizaLogger.error("Payment failed:", {
+                error: error.message,
+                stack: error.stack,
+                args: payInvoiceArgs
+            });
             throw error;
         }
     }
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
         try {
-          if (!args.id && !(args.transaction_id && args.transaction_vout)) {
-            throw new Error("Either channel id or transaction details (id and vout) are required");
-          }
-      
-          const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
-          elizaLogger.info("开始关闭通道:", {
-            channelId,
-            forceClose: args.is_force_close,
-            publicKey: args.public_key,
-            socket: args.socket
-          });
-      
-          // 构造基础参数
-          const baseArgs = {
-            lnd: this.lndClient,
-            ...(args.id ? { id: args.id } : {}),
-            ...(args.transaction_id && args.transaction_vout ? {
-              transaction_id: args.transaction_id,
-              transaction_vout: args.transaction_vout
-            } : {})
-          };
-      
-          if (args.is_force_close) {
-            // 强制关闭时：仅传 force close 所需参数，移除协作关闭专用的 address、public_key、socket 等字段
-            const forceCloseArgs = {
-              ...baseArgs,
-              is_force_close: true,
-              ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
-              ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-              ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
-            };
-            // 清除所有 undefined 的属性
-            Object.keys(forceCloseArgs).forEach(key => {
-              if (forceCloseArgs[key] === undefined) delete forceCloseArgs[key];
+            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+                elizaLogger.error("Missing required parameters for channel close", {
+                    id: args.id,
+                    transaction_id: args.transaction_id,
+                    transaction_vout: args.transaction_vout
+                });
+                throw new Error("Either channel id or transaction details are required");
+            }
+
+            const result = await closeChannel({
+                lnd: this.lndClient,
+                ...args
             });
-            
-            elizaLogger.debug("执行强制关闭通道:", { 
-              channelId,
-              params: JSON.stringify(forceCloseArgs)
+
+            elizaLogger.info("Channel closed:", {
+                transaction_id: result.transaction_id,
+                type: args.is_force_close ? "force" : "cooperative"
             });
-            
-            const result = await closeChannel(forceCloseArgs as any);
-            
-            elizaLogger.info("强制关闭通道成功:", { 
-              channelId,
-              transactionId: result.transaction_id,
-              transactionVout: result.transaction_vout 
-            });
-            
-            return result as CloseChannelResult;
-          } else {
-            // 协作关闭时：传入协作关闭所需的参数，包括 address、public_key、socket 等
-            const coopCloseArgs = {
-              ...baseArgs,
-              is_force_close: false,
-              ...(args.is_graceful_close ? { is_graceful_close: true } : {}),
-              ...(args.address ? { address: args.address } : {}),
-              ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
-              ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-              ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
-              ...(args.public_key ? { public_key: args.public_key } : {}),
-              ...(args.socket ? { socket: args.socket } : {})
-            };
-            // 清除所有 undefined 的属性
-            Object.keys(coopCloseArgs).forEach(key => {
-              if (coopCloseArgs[key] === undefined) delete coopCloseArgs[key];
-            });
-            
-            elizaLogger.debug("执行协作关闭通道:", { 
-              channelId,
-              params: JSON.stringify(coopCloseArgs)
-            });
-            
-            const result = await closeChannel(coopCloseArgs as any);
-            
-            elizaLogger.info("协作关闭通道成功:", { 
-              channelId,
-              transactionId: result.transaction_id,
-              transactionVout: result.transaction_vout,
-              address: args.address
-            });
-            
-            return result as CloseChannelResult;
-          }
+            return result;
         } catch (error) {
-          const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
-          elizaLogger.error("关闭通道失败:", { 
-            channelId, 
-            forceClose: args.is_force_close,
-            error: error.message,
-            stack: error.stack
-          });
-          throw new Error(`Failed to close channel: ${error.message}`);
+            elizaLogger.error("Close channel failed:", {
+                error: error.message,
+                stack: error.stack,
+                args
+            });
+            throw error;
         }
-      }
+    }
       
     async getChainAddresses(): Promise<GetChainAddressesResult> {
         try {
             const result = await getChainAddresses({
                 lnd: this.lndClient
             });
-            elizaLogger.info("Chain addresses:", {
+            elizaLogger.info("Chain addresses retrieved:", {
                 total: result.addresses.length,
                 change: result.addresses.filter(addr => addr.is_change).length
             });
             return result;
         } catch (error) {
-            elizaLogger.error("Get chain addresses failed:", error);
+            elizaLogger.error("Get chain addresses failed:", {
+                error: error.message,
+                stack: error.stack
+            });
             throw error;
         }
     }
@@ -227,6 +184,10 @@ export class LightningProvider {
     async openChannel(args: OpenChannelArgs): Promise<OpenChannelResult> {
         try {
             if (!args.local_tokens || !args.partner_public_key) {
+                elizaLogger.error("Missing required parameters for channel open", {
+                    local_tokens: args.local_tokens,
+                    partner_public_key: args.partner_public_key
+                });
                 throw new Error("local_tokens and partner_public_key are required");
             }
 
@@ -238,20 +199,23 @@ export class LightningProvider {
                 }
             }
             
-            elizaLogger.info("Opening channel:", {
-                tokens: args.local_tokens,
-                partner: args.partner_public_key,
-                is_private: args.is_private
-            });
-
             const result = await openChannel({
                 lnd: this.lndClient,
                 ...args
             });
-            elizaLogger.info("Channel opened:", { transaction_id: result.transaction_id });
+
+            elizaLogger.info("Channel opened:", {
+                transaction_id: result.transaction_id,
+                local_tokens: args.local_tokens,
+                partner_public_key: args.partner_public_key
+            });
             return result;
         } catch (error) {
-            elizaLogger.error("Open channel failed:", error);
+            elizaLogger.error("Open channel failed:", {
+                error: error.message,
+                stack: error.stack,
+                args
+            });
             throw error;
         }
     }
@@ -264,10 +228,17 @@ export class LightningProvider {
                 format,
                 is_unused: args.is_unused
             });
-            elizaLogger.info("Chain address created:", { format });
+            elizaLogger.info("Chain address created:", {
+                address: result.address,
+                format
+            });
             return result;
         } catch (error) {
-            elizaLogger.error("Create chain address failed:", error);
+            elizaLogger.error("Create chain address failed:", {
+                error: error.message,
+                stack: error.stack,
+                args
+            });
             throw error;
         }
     }
@@ -277,10 +248,15 @@ export class LightningProvider {
             const result = await getChainBalance({
                 lnd: this.lndClient
             });
-            elizaLogger.info("Chain balance:", { balance: result.chain_balance });
+            elizaLogger.info("Chain balance retrieved:", {
+                balance: result.chain_balance
+            });
             return result;
         } catch (error) {
-            elizaLogger.error("Get chain balance failed:", error);
+            elizaLogger.error("Get chain balance failed:", {
+                error: error.message,
+                stack: error.stack
+            });
             throw error;
         }
     }

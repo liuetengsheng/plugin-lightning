@@ -19,19 +19,10 @@ export { openChannelTemplate };
 export class OpenChannelAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.info("OpenChannelAction initialized");
     }
 
     async openChannel(params: OpenChannelArgs): Promise<OpenChannelResult> {
-        elizaLogger.info("OpenChannelAction.openChannel called with params:", {
-            local_tokens: params.local_tokens,
-            partner_public_key: params.partner_public_key,
-            is_private: params.is_private,
-            description: params.description
-        });
-
         try {
-            // 验证必要参数
             if (!params.local_tokens || !params.partner_public_key) {
                 elizaLogger.error("Validation failed: Missing required parameters", {
                     hasLocalTokens: !!params.local_tokens,

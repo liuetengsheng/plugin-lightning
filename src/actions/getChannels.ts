@@ -19,18 +19,11 @@ export { getChannelsTemplate };
 export class GetChannelsAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.info("GetChannelsAction initialized");
     }
 
     async getChannels(params: GetChannelsArgs = {}): Promise<{ channels: Channel[] }> {
-        elizaLogger.info("GetChannelsAction.getChannels called with params:", params);
         try {
             const { channels } = await this.lightningProvider.getLndChannel();
-            elizaLogger.info("Retrieved channels from provider:", {
-                totalChannels: channels.length,
-                activeChannels: channels.filter(c => c.is_active).length,
-                privateChannels: channels.filter(c => c.is_private).length
-            });
             
             // 应用过滤条件
             let filteredChannels = channels;
@@ -39,56 +32,35 @@ export class GetChannelsAction {
                 filteredChannels = filteredChannels.filter(
                     channel => channel.is_active === params.is_active
                 );
-                elizaLogger.info("Applied is_active filter:", {
-                    is_active: params.is_active,
-                    remainingChannels: filteredChannels.length
-                });
             }
             
             if (params.is_offline !== undefined) {
                 filteredChannels = filteredChannels.filter(
                     channel => !channel.is_active === params.is_offline
                 );
-                elizaLogger.info("Applied is_offline filter:", {
-                    is_offline: params.is_offline,
-                    remainingChannels: filteredChannels.length
-                });
             }
             
             if (params.is_private !== undefined) {
                 filteredChannels = filteredChannels.filter(
                     channel => channel.is_private === params.is_private
                 );
-                elizaLogger.info("Applied is_private filter:", {
-                    is_private: params.is_private,
-                    remainingChannels: filteredChannels.length
-                });
             }
             
             if (params.is_public !== undefined) {
                 filteredChannels = filteredChannels.filter(
                     channel => !channel.is_private === params.is_public
                 );
-                elizaLogger.info("Applied is_public filter:", {
-                    is_public: params.is_public,
-                    remainingChannels: filteredChannels.length
-                });
             }
             
             if (params.partner_public_key) {
                 filteredChannels = filteredChannels.filter(
                     channel => channel.partner_public_key === params.partner_public_key
                 );
-                elizaLogger.info("Applied partner_public_key filter:", {
-                    partner_public_key: params.partner_public_key,
-                    remainingChannels: filteredChannels.length
-                });
             }
 
-            elizaLogger.info("Final filtered channels:", {
-                totalChannels: filteredChannels.length,
-                activeChannels: filteredChannels.filter(c => c.is_active).length,
-                privateChannels: filteredChannels.filter(c => c.is_private).length
+            elizaLogger.info("Channels retrieved:", {
+                total: filteredChannels.length,
+                active: filteredChannels.filter(c => c.is_active).length
             });
 
             return { channels: filteredChannels };
