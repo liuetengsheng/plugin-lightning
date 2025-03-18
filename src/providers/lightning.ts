@@ -170,7 +170,7 @@ export class LightningProvider {
                 });
                 throw new Error("Either channel id or transaction details (id and vout) are required");
             }
-      
+
             // 构造基础参数
             const baseArgs = {
                 lnd: this.lndClient,
@@ -180,52 +180,35 @@ export class LightningProvider {
                     transaction_vout: args.transaction_vout
                 } : {})
             };
-      
+
+            let closeArgs;
             if (args.is_force_close) {
                 elizaLogger.log("Performing force close");
-                // 强制关闭时：仅传 force close 所需参数，移除协作关闭专用的 address、public_key、socket 等字段
-                const forceCloseArgs = {
+                // 强制关闭参数
+                closeArgs = {
                     ...baseArgs,
-                    is_force_close: true,
-                    ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
-                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
+                    is_force_close: true as const,
+                    // 强制关闭不需要其他参数
                 };
-                // 清除所有 undefined 的属性
-                Object.keys(forceCloseArgs).forEach(key => {
-                    if (forceCloseArgs[key] === undefined) delete forceCloseArgs[key];
-                });
-                const result = await closeChannel(forceCloseArgs as any);
-                elizaLogger.log("Channel force closed successfully:", {
-                    transaction_id: result.transaction_id,
-                    transaction_vout: result.transaction_vout
-                });
-                return result as CloseChannelResult;
             } else {
                 elizaLogger.log("Performing cooperative close");
-                // 协作关闭时：传入协作关闭所需的参数，包括 address、public_key、socket 等
-                const coopCloseArgs = {
+                // 协作关闭参数
+                closeArgs = {
                     ...baseArgs,
-                    is_force_close: false,
-                    ...(args.is_graceful_close ? { is_graceful_close: true } : {}),
-                    ...(args.address ? { address: args.address } : {}),
-                    ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
-                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
-                    ...(args.public_key ? { public_key: args.public_key } : {}),
-                    ...(args.socket ? { socket: args.socket } : {})
+                    is_force_close: false as const,
+                    address: args.address,
+                    target_confirmations: args.target_confirmations,
+                    tokens_per_vbyte: args.tokens_per_vbyte
                 };
-                // 清除所有 undefined 的属性
-                Object.keys(coopCloseArgs).forEach(key => {
-                    if (coopCloseArgs[key] === undefined) delete coopCloseArgs[key];
-                });
-                const result = await closeChannel(coopCloseArgs as any);
-                elizaLogger.log("Channel cooperatively closed successfully:", {
-                    transaction_id: result.transaction_id,
-                    transaction_vout: result.transaction_vout
-                });
-                return result as CloseChannelResult;
             }
+
+            const result = await closeChannel(closeArgs);
+            elizaLogger.log("Channel closed successfully:", {
+                transaction_id: result.transaction_id,
+                transaction_vout: result.transaction_vout,
+                is_force_close: args.is_force_close
+            });
+            return result;
         } catch (error) {
             elizaLogger.error("Failed to close channel:", {
                 error: error.message,

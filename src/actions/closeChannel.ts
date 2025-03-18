@@ -22,22 +22,68 @@ export class CloseChannelAction {
         elizaLogger.log("CloseChannelAction initialized");
     }
 
-    async closeChannel(params: CloseChannelArgs): Promise<CloseChannelResult> {
-        elizaLogger.log("CloseChannelAction.closeChannel called with params:", params);
+    async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
+        elizaLogger.log("Closing channel with args:", args);
         try {
-            const result = await this.lightningProvider.closeChannel(params);
-            elizaLogger.log("CloseChannelAction.closeChannel result:", {
-                transaction_id: result.transaction_id,
-                transaction_vout: result.transaction_vout
-            });
-            return result;
+            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+                elizaLogger.error("Validation failed: Missing required parameters", {
+                    hasId: !!args.id,
+                    hasTransactionId: !!args.transaction_id,
+                    hasTransactionVout: !!args.transaction_vout
+                });
+                throw new Error("Either channel id or transaction details (id and vout) are required");
+            }
+
+            // 构造基础参数
+            const baseArgs = {
+                lnd: this.lightningProvider.lndClient,
+                ...(args.id ? { id: args.id } : {}),
+                ...(args.transaction_id && args.transaction_vout ? {
+                    transaction_id: args.transaction_id,
+                    transaction_vout: args.transaction_vout
+                } : {})
+            };
+
+            if (args.is_force_close) {
+                elizaLogger.log("Performing force close");
+                // 强制关闭参数
+                const forceCloseArgs = {
+                    ...baseArgs,
+                    is_force_close: true as const
+                };
+
+                const result = await this.lightningProvider.closeChannel(forceCloseArgs);
+                elizaLogger.log("Channel force closed successfully:", {
+                    transaction_id: result.transaction_id,
+                    transaction_vout: result.transaction_vout
+                });
+                return result;
+            } else {
+                elizaLogger.log("Performing cooperative close");
+                // 协作关闭参数
+                const coopCloseArgs = {
+                    ...baseArgs,
+                    address: args.address,
+                    is_force_close: false as const,
+                    is_partner_initiated: false,
+                    target_confirmations: args.target_confirmations,
+                    tokens_per_vbyte: args.tokens_per_vbyte
+                };
+
+                const result = await this.lightningProvider.closeChannel(coopCloseArgs);
+                elizaLogger.log("Channel cooperatively closed successfully:", {
+                    transaction_id: result.transaction_id,
+                    transaction_vout: result.transaction_vout
+                });
+                return result;
+            }
         } catch (error) {
-            elizaLogger.error("CloseChannelAction.closeChannel error:", {
+            elizaLogger.error("Failed to close channel:", {
                 error: error.message,
                 stack: error.stack,
-                params
+                args
             });
-            throw error;
+            throw new Error(`Failed to close channel: ${error.message}`);
         }
     }
 }
