@@ -19,71 +19,23 @@ export { closeChannelTemplate };
 export class CloseChannelAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.info("CloseChannelAction initialized");
     }
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
-        elizaLogger.info("Closing channel with args:", args);
         try {
-            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
-                elizaLogger.error("Validation failed: Missing required parameters", {
-                    hasId: !!args.id,
-                    hasTransactionId: !!args.transaction_id,
-                    hasTransactionVout: !!args.transaction_vout
-                });
-                throw new Error("Either channel id or transaction details (id and vout) are required");
-            }
-
-            // 构造基础参数
-            const baseArgs = {
-                lnd: this.lightningProvider.lndClient,
-                ...(args.id ? { id: args.id } : {}),
-                ...(args.transaction_id && args.transaction_vout ? {
-                    transaction_id: args.transaction_id,
-                    transaction_vout: args.transaction_vout
-                } : {})
-            };
-
-            if (args.is_force_close) {
-                elizaLogger.info("Performing force close");
-                // 强制关闭参数
-                const forceCloseArgs = {
-                    ...baseArgs,
-                    is_force_close: true as const
-                };
-
-                const result = await this.lightningProvider.closeChannel(forceCloseArgs);
-                elizaLogger.info("Channel force closed successfully:", {
-                    transaction_id: result.transaction_id,
-                    transaction_vout: result.transaction_vout
-                });
-                return result;
-            } else {
-                elizaLogger.info("Performing cooperative close");
-                // 协作关闭参数
-                const coopCloseArgs = {
-                    ...baseArgs,
-                    address: args.address,
-                    is_force_close: false as const,
-                    is_partner_initiated: false,
-                    target_confirmations: args.target_confirmations,
-                    tokens_per_vbyte: args.tokens_per_vbyte
-                };
-
-                const result = await this.lightningProvider.closeChannel(coopCloseArgs);
-                elizaLogger.info("Channel cooperatively closed successfully:", {
-                    transaction_id: result.transaction_id,
-                    transaction_vout: result.transaction_vout
-                });
-                return result;
-            }
-        } catch (error) {
-            elizaLogger.error("Failed to close channel:", {
-                error: error.message,
-                stack: error.stack,
-                args
+            elizaLogger.info("Closing channel:", {
+                id: args.id || `${args.transaction_id}:${args.transaction_vout}`,
+                type: args.is_force_close ? "force" : "cooperative"
             });
-            throw new Error(`Failed to close channel: ${error.message}`);
+            
+            const result = await this.lightningProvider.closeChannel(args);
+            elizaLogger.info("Channel closed:", { 
+                transaction_id: result.transaction_id 
+            });
+            return result;
+        } catch (error) {
+            elizaLogger.error("Close channel failed:", error);
+            throw error;
         }
     }
 }
@@ -118,26 +70,14 @@ export const closeChannelAction = {
             content?: { success: boolean; transaction?: { id: string; vout: number } };
         }) => void
     ) => {
-        elizaLogger.info("closeChannel action handler called with params:", {
-            message: _message,
-            state,
-            options: _options,
-            hasCallback: !!callback
-        });
-        
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.info("LightningProvider initialized successfully");
-            
             const action = new CloseChannelAction(lightningProvider);
-            elizaLogger.info("CloseChannelAction created");
 
-            // Compose bridge context
             const closeChannelContext = composeContext({
                 state,
                 template: closeChannelTemplate,
             });
-            elizaLogger.info("Bridge context composed:", { context: closeChannelContext });
             
             const content = await generateObject({
                 runtime,
@@ -145,40 +85,26 @@ export const closeChannelAction = {
                 schema: closeChannelSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.info("Generated content:", { content });
 
             const closeChannelContent = content.object as CloseChannelContent;
-            elizaLogger.info("Parsed content:", closeChannelContent);
-
-            // 验证必要参数
+            
+            // 只记录关键验证错误
             if (!closeChannelContent.id && 
                 !(closeChannelContent.transaction_id && closeChannelContent.transaction_vout)) {
-                elizaLogger.error("Validation failed: Missing required parameters", {
-                    hasId: !!closeChannelContent.id,
-                    hasTransactionId: !!closeChannelContent.transaction_id,
-                    hasTransactionVout: !!closeChannelContent.transaction_vout
-                });
+                elizaLogger.error("Missing required parameters for channel close");
                 if (callback) {
-                    const errorResponse = {
-                        text: "Error: Either channel id or transaction details (id and vout) are required",
-                    };
-                    elizaLogger.info("Error callback response:", errorResponse);
-                    callback(errorResponse);
+                    callback({
+                        text: "Error: Either channel id or transaction details are required"
+                    });
                 }
                 return false;
             }
 
             const result = await action.closeChannel(closeChannelContent);
-            elizaLogger.info("Channel closed successfully:", {
-                transaction_id: result.transaction_id,
-                transaction_vout: result.transaction_vout,
-                is_force_close: closeChannelContent.is_force_close,
-                is_graceful_close: closeChannelContent.is_graceful_close
-            });
             
             if (callback) {
-                const response = {
-                    text: `Successfully closed channel. Transaction ID: ${result.transaction_id}, Vout: ${result.transaction_vout}`,
+                callback({
+                    text: `Successfully closed channel. Transaction ID: ${result.transaction_id}`,
                     content: { 
                         success: true,
                         transaction: {
@@ -186,42 +112,28 @@ export const closeChannelAction = {
                             vout: result.transaction_vout
                         }
                     },
-                };
-                elizaLogger.info("Success callback response:", response);
-                callback(response);
+                });
             }
             return true;
         } catch (error) {
-            elizaLogger.error("Error in closeChannel handler:", {
-                error: error.message,
-                stack: error.stack,
-                message: _message,
-                state,
-                options: _options
-            });
+            elizaLogger.error("Channel close failed:", error);
             if (callback) {
-                const errorResponse = {
-                    text: `Error: ${error.message || "An error occurred"}`,
-                };
-                elizaLogger.info("Error callback response:", errorResponse);
-                callback(errorResponse);
+                callback({
+                    text: `Error: ${error.message || "An error occurred"}`
+                });
             }
             return false;
         }
     },
     template: closeChannelTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.info("Validating closeChannel action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.info("Validation result:", { 
-            isValid,
-            hasCert: !!cert,
-            hasMacaroon: !!macaroon,
-            hasSocket: !!socket
-        });
+        if (!isValid) {
+            elizaLogger.error("Missing required LND credentials");
+        }
         return isValid;
     },
     examples: [
