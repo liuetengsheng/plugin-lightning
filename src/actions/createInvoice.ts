@@ -118,15 +118,15 @@ export const createInvoiceAction = {
             return true;
         } catch (error) {
             elizaLogger.error("Error in CreateInvoice handler:", {
-                error: error.message,
-                stack: error.stack,
-                // message: _message,
-                // state,
-                // options: _options
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack
             });
+            
             if (callback) {
                 const errorResponse = {
-                    text: `Error: ${error.message}`,
+                    text: `Error: ${error?.message || String(error) || "An error occurred"}`,
                 };
                 elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);

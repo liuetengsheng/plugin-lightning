@@ -147,14 +147,20 @@ export const closeChannelAction = {
             }
             return true;
         } catch (error) {
-            elizaLogger.error("Channel close failed:", {
-                error: error.message,
-                params: _message
+            // 更全面的错误日志记录
+            elizaLogger.error("Error in closeChannel handler:", {
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack
             });
+            
             if (callback) {
-                callback({
-                    text: `Error: ${error.message || "An error occurred"}`
-                });
+                const errorResponse = {
+                    text: `Error: ${error?.message || String(error) || "An error occurred"}`,
+                };
+                elizaLogger.info("Error callback response:", errorResponse);
+                callback(errorResponse);
             }
             return false;
         }
