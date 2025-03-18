@@ -86,12 +86,12 @@ export const openChannelAction = {
             content?: { success: boolean; transaction?: { id: string; vout: number } };
         }) => void
     ) => {
-        elizaLogger.info("openChannel action handler called with params:", {
-            message: _message,
-            state,
-            options: _options,
-            hasCallback: !!callback
-        });
+        // elizaLogger.info("openChannel action handler called with params:", {
+        //     message: _message,
+        //     state,
+        //     options: _options,
+        //     hasCallback: !!callback
+        // });
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
@@ -167,9 +167,9 @@ export const openChannelAction = {
             elizaLogger.error("Error in openChannel handler:", {
                 error: error.message,
                 stack: error.stack,
-                message: _message,
-                state,
-                options: _options
+                // message: _message,
+                // state,
+                // options: _options
             });
             if (callback) {
                 const errorResponse = {

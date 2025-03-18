@@ -99,12 +99,12 @@ export const getChannelsAction = {
             content?: { success: boolean; channels?: Channel[] };
         }) => void
     ) => {
-        elizaLogger.info("getChannels action handler called with params:", {
-            message: _message,
-            state,
-            options: _options,
-            hasCallback: !!callback
-        });
+        // elizaLogger.info("getChannels action handler called with params:", {
+        //     message: _message,
+        //     state,
+        //     options: _options,
+        //     hasCallback: !!callback
+        // });
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
@@ -158,9 +158,9 @@ export const getChannelsAction = {
             elizaLogger.error("Error in getChannels handler:", {
                 error: error.message,
                 stack: error.stack,
-                message: _message,
-                state,
-                options: _options
+                // message: _message,
+                // state,
+                // options: _options
             });
             if (callback) {
                 const errorResponse = {

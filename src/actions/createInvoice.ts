@@ -19,23 +19,28 @@ export { createInvoiceTemplate };
 export class CreateInvoiceAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
+        elizaLogger.info("CreateInvoiceAction initialized");
     }
 
-    async createInvoice(params: CreateInvoiceArgs): Promise<CreateInvoiceResult> {
+    async createInvoice(
+        params: CreateInvoiceArgs,
+    ): Promise<CreateInvoiceResult> {
+        elizaLogger.info("CreateInvoiceAction.createInvoice called with params:", params);
         if (!params.tokens) {
-            elizaLogger.error("CreateInvoice validation failed: tokens is required");
+            elizaLogger.error("CreateInvoiceAction.createInvoice validation failed: tokens is required");
             throw new Error("tokens is required.");
         }
         try {
-            const retCreateInvoice = await this.lightningProvider.createInvoice(params);
-            elizaLogger.info("Invoice created:", {
+            const retCreateInvoice =
+                await this.lightningProvider.createInvoice(params);
+            elizaLogger.info("CreateInvoiceAction.createInvoice result:", {
                 tokens: retCreateInvoice.tokens,
                 request: retCreateInvoice.request,
                 id: retCreateInvoice.id
             });
             return retCreateInvoice;
         } catch (error) {
-            elizaLogger.error("CreateInvoice error:", {
+            elizaLogger.error("CreateInvoiceAction.createInvoice error:", {
                 error: error.message,
                 stack: error.stack,
                 params
@@ -58,12 +63,12 @@ export const createInvoiceAction = {
             content?: { success: boolean; invoice?: string };
         }) => void,
     ) => {
-        elizaLogger.info("CreateInvoice action handler called with params:", {
-            message: _message,
-            state,
-            options: _options,
-            hasCallback: !!callback
-        });
+        // elizaLogger.info("CreateInvoice action handler called with params:", {
+        //     message: _message,
+        //     state,
+        //     options: _options,
+        //     hasCallback: !!callback
+        // });
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
@@ -115,9 +120,9 @@ export const createInvoiceAction = {
             elizaLogger.error("Error in CreateInvoice handler:", {
                 error: error.message,
                 stack: error.stack,
-                message: _message,
-                state,
-                options: _options
+                // message: _message,
+                // state,
+                // options: _options
             });
             if (callback) {
                 const errorResponse = {
