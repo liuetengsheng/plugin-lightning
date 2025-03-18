@@ -115,37 +115,45 @@ export class LightningProvider {
             if (!args.id && !(args.transaction_id && args.transaction_vout)) {
                 throw new Error("Either channel id or transaction details are required");
             }
-    
-            // 构建基础参数
-            const baseArgs = {
-                lnd: this.lndClient,
-                ...(args.id ? { id: args.id } : {}),
-                ...(args.transaction_id && args.transaction_vout ? {
-                    transaction_id: args.transaction_id,
-                    transaction_vout: args.transaction_vout
-                } : {})
-            };
-    
-            // 根据是否强制关闭构建不同的参数
-            const closeArgs = args.is_force_close ? {
-                ...baseArgs,
-                is_force_close: true as const  // 使用 const 断言
-            } : {
-                ...baseArgs,
-                is_force_close: false as const,  // 使用 const 断言
-                address: args.address,
-                target_confirmations: args.target_confirmations,
-                tokens_per_vbyte: args.tokens_per_vbyte
-            };
-    
+
+            // 记录操作信息
             elizaLogger.info("Closing channel:", { 
                 type: args.is_force_close ? "force" : "cooperative",
                 id: args.id || `${args.transaction_id}:${args.transaction_vout}`
             });
-    
-            const result = await closeChannel(closeArgs);
-            elizaLogger.info("Channel closed:", { transaction_id: result.transaction_id });
-            return result;
+
+            // 强制关闭的参数
+            if (args.is_force_close) {
+                const forceCloseArgs = {
+                    lnd: this.lndClient,
+                    is_force_close: true as const,
+                    ...(args.id ? { id: args.id } : {
+                        transaction_id: args.transaction_id!,
+                        transaction_vout: args.transaction_vout!
+                    })
+                };
+                const result = await closeChannel(forceCloseArgs);
+                elizaLogger.info("Channel force closed:", { transaction_id: result.transaction_id });
+                return result;
+            } 
+            
+            // 协作关闭的参数
+            else {
+                const coopCloseArgs = {
+                    lnd: this.lndClient,
+                    is_force_close: false as const,
+                    ...(args.id ? { id: args.id } : {
+                        transaction_id: args.transaction_id!,
+                        transaction_vout: args.transaction_vout!
+                    }),
+                    ...(args.address ? { address: args.address } : {}),
+                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
+                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {})
+                };
+                const result = await closeChannel(coopCloseArgs);
+                elizaLogger.info("Channel cooperatively closed:", { transaction_id: result.transaction_id });
+                return result;
+            }
         } catch (error) {
             elizaLogger.error("Close channel failed:", error);
             throw error;
