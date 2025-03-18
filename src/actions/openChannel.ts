@@ -19,10 +19,43 @@ export { openChannelTemplate };
 export class OpenChannelAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
+        elizaLogger.log("OpenChannelAction initialized");
     }
 
     async openChannel(params: OpenChannelArgs): Promise<OpenChannelResult> {
-        return await this.lightningProvider.openChannel(params);
+        elizaLogger.log("OpenChannelAction.openChannel called with params:", {
+            local_tokens: params.local_tokens,
+            partner_public_key: params.partner_public_key,
+            is_private: params.is_private,
+            description: params.description
+        });
+
+        try {
+            // 验证必要参数
+            if (!params.local_tokens || !params.partner_public_key) {
+                elizaLogger.error("Validation failed: Missing required parameters", {
+                    hasLocalTokens: !!params.local_tokens,
+                    hasPartnerPublicKey: !!params.partner_public_key
+                });
+                throw new Error("local_tokens and partner_public_key are required");
+            }
+
+            const result = await this.lightningProvider.openChannel(params);
+            elizaLogger.log("Channel opened successfully:", {
+                transaction_id: result.transaction_id,
+                transaction_vout: result.transaction_vout,
+                local_tokens: params.local_tokens,
+                partner_public_key: params.partner_public_key
+            });
+            return result;
+        } catch (error) {
+            elizaLogger.error("Error in openChannel:", {
+                error: error.message,
+                stack: error.stack,
+                params
+            });
+            throw error;
+        }
     }
 }
 
@@ -62,44 +95,70 @@ export const openChannelAction = {
             content?: { success: boolean; transaction?: { id: string; vout: number } };
         }) => void
     ) => {
-        elizaLogger.log("openChannel action handler called");
-        const lightningProvider = await initLightningProvider(runtime);
-        const action = new OpenChannelAction(lightningProvider);
-
-        // Compose bridge context
-        const openChannelContext = composeContext({
+        elizaLogger.log("openChannel action handler called with params:", {
+            message: _message,
             state,
-            template: openChannelTemplate,
+            options: _options,
+            hasCallback: !!callback
         });
         
-        const content = await generateObject({
-            runtime,
-            context: openChannelContext,
-            schema: openChannelSchema as z.ZodType,
-            modelClass: ModelClass.LARGE,
-        });
-
-        const openChannelContent = content.object as OpenChannelContent;
-
-        // 验证必要参数
-        if (!openChannelContent.local_tokens || !openChannelContent.partner_public_key) {
-            if (callback) {
-                callback({
-                    text: "Error: local_tokens and partner_public_key are required",
-                });
-            }
-            return false;
-        }
-
         try {
+            const lightningProvider = await initLightningProvider(runtime);
+            elizaLogger.log("LightningProvider initialized successfully");
+            
+            const action = new OpenChannelAction(lightningProvider);
+            elizaLogger.log("OpenChannelAction created");
+
+            // Compose bridge context
+            const openChannelContext = composeContext({
+                state,
+                template: openChannelTemplate,
+            });
+            elizaLogger.log("Bridge context composed:", { context: openChannelContext });
+            
+            const content = await generateObject({
+                runtime,
+                context: openChannelContext,
+                schema: openChannelSchema as z.ZodType,
+                modelClass: ModelClass.LARGE,
+            });
+            elizaLogger.log("Generated content:", { content });
+
+            const openChannelContent = content.object as OpenChannelContent;
+            elizaLogger.log("Parsed content:", openChannelContent);
+
+            // 验证必要参数
+            if (!openChannelContent.local_tokens || !openChannelContent.partner_public_key) {
+                elizaLogger.error("Validation failed: Missing required parameters", {
+                    hasLocalTokens: !!openChannelContent.local_tokens,
+                    hasPartnerPublicKey: !!openChannelContent.partner_public_key
+                });
+                if (callback) {
+                    const errorResponse = {
+                        text: "Error: local_tokens and partner_public_key are required",
+                    };
+                    elizaLogger.log("Error callback response:", errorResponse);
+                    callback(errorResponse);
+                }
+                return false;
+            }
+
             const result = await action.openChannel(openChannelContent);
+            elizaLogger.log("Channel opened successfully:", {
+                transaction_id: result.transaction_id,
+                transaction_vout: result.transaction_vout,
+                local_tokens: openChannelContent.local_tokens,
+                partner_public_key: openChannelContent.partner_public_key,
+                is_private: openChannelContent.is_private,
+                description: openChannelContent.description
+            });
             
             if (callback) {
                 const addressInfo = openChannelContent.cooperative_close_address 
                     ? `\nCooperative close address: ${openChannelContent.cooperative_close_address}`
                     : "\nUsing automatically fetched cooperative close address";
                 
-                callback({
+                const response = {
                     text: `Successfully opened channel with capacity ${openChannelContent.local_tokens} sats to ${openChannelContent.partner_public_key}.${addressInfo}\nTransaction ID: ${result.transaction_id}, Vout: ${result.transaction_vout}`,
                     content: { 
                         success: true,
@@ -108,25 +167,43 @@ export const openChannelAction = {
                             vout: result.transaction_vout
                         }
                     },
-                });
+                };
+                elizaLogger.log("Success callback response:", response);
+                callback(response);
             }
             return true;
         } catch (error) {
-            elizaLogger.error("Error in openChannel handler:", error);
+            elizaLogger.error("Error in openChannel handler:", {
+                error: error.message,
+                stack: error.stack,
+                message: _message,
+                state,
+                options: _options
+            });
             if (callback) {
-                callback({
+                const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
-                });
+                };
+                elizaLogger.log("Error callback response:", errorResponse);
+                callback(errorResponse);
             }
             return false;
         }
     },
     template: openChannelTemplate,
     validate: async (runtime: IAgentRuntime) => {
+        elizaLogger.log("Validating openChannel action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
-        return !!cert && !!macaroon && !!socket;
+        const isValid = !!cert && !!macaroon && !!socket;
+        elizaLogger.log("Validation result:", { 
+            isValid,
+            hasCert: !!cert,
+            hasMacaroon: !!macaroon,
+            hasSocket: !!socket
+        });
+        return isValid;
     },
     examples: [
         [

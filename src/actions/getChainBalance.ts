@@ -19,10 +19,24 @@ export { getChainBalanceTemplate };
 export class GetChainBalanceAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
+        elizaLogger.log("GetChainBalanceAction initialized");
     }
 
     async getChainBalance(): Promise<GetChainBalanceResult> {
-        return await this.lightningProvider.getChainBalance();
+        elizaLogger.log("GetChainBalanceAction.getChainBalance called");
+        try {
+            const result = await this.lightningProvider.getChainBalance();
+            elizaLogger.log("Chain balance retrieved successfully:", {
+                chain_balance: result.chain_balance
+            });
+            return result;
+        } catch (error) {
+            elizaLogger.error("Error in getChainBalance:", {
+                error: error.message,
+                stack: error.stack
+            });
+            throw error;
+        }
     }
 }
 
@@ -44,52 +58,87 @@ export const getChainBalanceAction = {
             content?: { success: boolean; balance?: number };
         }) => void
     ) => {
-        elizaLogger.log("getChainBalance action handler called");
-        const lightningProvider = await initLightningProvider(runtime);
-        const action = new GetChainBalanceAction(lightningProvider);
-
-        // Compose bridge context
-        const getChainBalanceContext = composeContext({
+        elizaLogger.log("getChainBalance action handler called with params:", {
+            message: _message,
             state,
-            template: getChainBalanceTemplate,
+            options: _options,
+            hasCallback: !!callback
         });
         
-        const content = await generateObject({
-            runtime,
-            context: getChainBalanceContext,
-            schema: getChainBalanceSchema as z.ZodType,
-            modelClass: ModelClass.LARGE,
-        });
-
         try {
+            const lightningProvider = await initLightningProvider(runtime);
+            elizaLogger.log("LightningProvider initialized successfully");
+            
+            const action = new GetChainBalanceAction(lightningProvider);
+            elizaLogger.log("GetChainBalanceAction created");
+
+            // Compose bridge context
+            const getChainBalanceContext = composeContext({
+                state,
+                template: getChainBalanceTemplate,
+            });
+            elizaLogger.log("Bridge context composed:", { context: getChainBalanceContext });
+            
+            const content = await generateObject({
+                runtime,
+                context: getChainBalanceContext,
+                schema: getChainBalanceSchema as z.ZodType,
+                modelClass: ModelClass.LARGE,
+            });
+            elizaLogger.log("Generated content:", { content });
+
+            const getChainBalanceContent = content.object as GetChainBalanceContent;
+            elizaLogger.log("Parsed content:", getChainBalanceContent);
+
             const result = await action.getChainBalance();
+            elizaLogger.log("Chain balance retrieved successfully:", {
+                chain_balance: result.chain_balance
+            });
             
             if (callback) {
-                callback({
+                const response = {
                     text: `Current chain balance: ${result.chain_balance.toLocaleString()} sats`,
                     content: { 
                         success: true,
                         balance: result.chain_balance
                     },
-                });
+                };
+                elizaLogger.log("Success callback response:", response);
+                callback(response);
             }
             return true;
         } catch (error) {
-            elizaLogger.error("Error in getChainBalance handler:", error);
+            elizaLogger.error("Error in getChainBalance handler:", {
+                error: error.message,
+                stack: error.stack,
+                message: _message,
+                state,
+                options: _options
+            });
             if (callback) {
-                callback({
+                const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
-                });
+                };
+                elizaLogger.log("Error callback response:", errorResponse);
+                callback(errorResponse);
             }
             return false;
         }
     },
     template: getChainBalanceTemplate,
     validate: async (runtime: IAgentRuntime) => {
+        elizaLogger.log("Validating getChainBalance action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
-        return !!cert && !!macaroon && !!socket;
+        const isValid = !!cert && !!macaroon && !!socket;
+        elizaLogger.log("Validation result:", { 
+            isValid,
+            hasCert: !!cert,
+            hasMacaroon: !!macaroon,
+            hasSocket: !!socket
+        });
+        return isValid;
     },
     examples: [
         [
