@@ -19,14 +19,14 @@ export { getChannelsTemplate };
 export class GetChannelsAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.log("GetChannelsAction initialized");
+        elizaLogger.info("GetChannelsAction initialized");
     }
 
     async getChannels(params: GetChannelsArgs = {}): Promise<{ channels: Channel[] }> {
-        elizaLogger.log("GetChannelsAction.getChannels called with params:", params);
+        elizaLogger.info("GetChannelsAction.getChannels called with params:", params);
         try {
             const { channels } = await this.lightningProvider.getLndChannel();
-            elizaLogger.log("Retrieved channels from provider:", {
+            elizaLogger.info("Retrieved channels from provider:", {
                 totalChannels: channels.length,
                 activeChannels: channels.filter(c => c.is_active).length,
                 privateChannels: channels.filter(c => c.is_private).length
@@ -39,7 +39,7 @@ export class GetChannelsAction {
                 filteredChannels = filteredChannels.filter(
                     channel => channel.is_active === params.is_active
                 );
-                elizaLogger.log("Applied is_active filter:", {
+                elizaLogger.info("Applied is_active filter:", {
                     is_active: params.is_active,
                     remainingChannels: filteredChannels.length
                 });
@@ -49,7 +49,7 @@ export class GetChannelsAction {
                 filteredChannels = filteredChannels.filter(
                     channel => !channel.is_active === params.is_offline
                 );
-                elizaLogger.log("Applied is_offline filter:", {
+                elizaLogger.info("Applied is_offline filter:", {
                     is_offline: params.is_offline,
                     remainingChannels: filteredChannels.length
                 });
@@ -59,7 +59,7 @@ export class GetChannelsAction {
                 filteredChannels = filteredChannels.filter(
                     channel => channel.is_private === params.is_private
                 );
-                elizaLogger.log("Applied is_private filter:", {
+                elizaLogger.info("Applied is_private filter:", {
                     is_private: params.is_private,
                     remainingChannels: filteredChannels.length
                 });
@@ -69,7 +69,7 @@ export class GetChannelsAction {
                 filteredChannels = filteredChannels.filter(
                     channel => !channel.is_private === params.is_public
                 );
-                elizaLogger.log("Applied is_public filter:", {
+                elizaLogger.info("Applied is_public filter:", {
                     is_public: params.is_public,
                     remainingChannels: filteredChannels.length
                 });
@@ -79,13 +79,13 @@ export class GetChannelsAction {
                 filteredChannels = filteredChannels.filter(
                     channel => channel.partner_public_key === params.partner_public_key
                 );
-                elizaLogger.log("Applied partner_public_key filter:", {
+                elizaLogger.info("Applied partner_public_key filter:", {
                     partner_public_key: params.partner_public_key,
                     remainingChannels: filteredChannels.length
                 });
             }
 
-            elizaLogger.log("Final filtered channels:", {
+            elizaLogger.info("Final filtered channels:", {
                 totalChannels: filteredChannels.length,
                 activeChannels: filteredChannels.filter(c => c.is_active).length,
                 privateChannels: filteredChannels.filter(c => c.is_private).length
@@ -127,7 +127,7 @@ export const getChannelsAction = {
             content?: { success: boolean; channels?: Channel[] };
         }) => void
     ) => {
-        elizaLogger.log("getChannels action handler called with params:", {
+        elizaLogger.info("getChannels action handler called with params:", {
             message: _message,
             state,
             options: _options,
@@ -136,17 +136,17 @@ export const getChannelsAction = {
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const action = new GetChannelsAction(lightningProvider);
-            elizaLogger.log("GetChannelsAction created");
+            elizaLogger.info("GetChannelsAction created");
 
             // Compose bridge context
             const getChannelsContext = composeContext({
                 state,
                 template: getChannelsTemplate,
             });
-            elizaLogger.log("Bridge context composed:", { context: getChannelsContext });
+            elizaLogger.info("Bridge context composed:", { context: getChannelsContext });
             
             const content = await generateObject({
                 runtime,
@@ -154,13 +154,13 @@ export const getChannelsAction = {
                 schema: getChannelsSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.log("Generated content:", { content });
+            elizaLogger.info("Generated content:", { content });
 
             const getChannelsContent = content.object as GetChannelsContent;
-            elizaLogger.log("Parsed content:", getChannelsContent);
+            elizaLogger.info("Parsed content:", getChannelsContent);
 
             const result = await action.getChannels(getChannelsContent);
-            elizaLogger.log("Channels retrieved successfully:", {
+            elizaLogger.info("Channels retrieved successfully:", {
                 totalChannels: result.channels.length,
                 activeChannels: result.channels.filter(c => c.is_active).length,
                 privateChannels: result.channels.filter(c => c.is_private).length
@@ -178,7 +178,7 @@ export const getChannelsAction = {
                         channels: result.channels
                     },
                 };
-                elizaLogger.log("Callback response:", response);
+                elizaLogger.info("Callback response:", response);
                 callback(response);
             }
             return true;
@@ -194,7 +194,7 @@ export const getChannelsAction = {
                 const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
                 };
-                elizaLogger.log("Error callback response:", errorResponse);
+                elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);
             }
             return false;
@@ -202,12 +202,12 @@ export const getChannelsAction = {
     },
     template: getChannelsTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.log("Validating getChannels action");
+        elizaLogger.info("Validating getChannels action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.log("Validation result:", { 
+        elizaLogger.info("Validation result:", { 
             isValid,
             hasCert: !!cert,
             hasMacaroon: !!macaroon,

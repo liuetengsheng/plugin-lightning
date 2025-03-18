@@ -19,11 +19,11 @@ export { openChannelTemplate };
 export class OpenChannelAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.log("OpenChannelAction initialized");
+        elizaLogger.info("OpenChannelAction initialized");
     }
 
     async openChannel(params: OpenChannelArgs): Promise<OpenChannelResult> {
-        elizaLogger.log("OpenChannelAction.openChannel called with params:", {
+        elizaLogger.info("OpenChannelAction.openChannel called with params:", {
             local_tokens: params.local_tokens,
             partner_public_key: params.partner_public_key,
             is_private: params.is_private,
@@ -41,7 +41,7 @@ export class OpenChannelAction {
             }
 
             const result = await this.lightningProvider.openChannel(params);
-            elizaLogger.log("Channel opened successfully:", {
+            elizaLogger.info("Channel opened successfully:", {
                 transaction_id: result.transaction_id,
                 transaction_vout: result.transaction_vout,
                 local_tokens: params.local_tokens,
@@ -95,7 +95,7 @@ export const openChannelAction = {
             content?: { success: boolean; transaction?: { id: string; vout: number } };
         }) => void
     ) => {
-        elizaLogger.log("openChannel action handler called with params:", {
+        elizaLogger.info("openChannel action handler called with params:", {
             message: _message,
             state,
             options: _options,
@@ -104,17 +104,17 @@ export const openChannelAction = {
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const action = new OpenChannelAction(lightningProvider);
-            elizaLogger.log("OpenChannelAction created");
+            elizaLogger.info("OpenChannelAction created");
 
             // Compose bridge context
             const openChannelContext = composeContext({
                 state,
                 template: openChannelTemplate,
             });
-            elizaLogger.log("Bridge context composed:", { context: openChannelContext });
+            elizaLogger.info("Bridge context composed:", { context: openChannelContext });
             
             const content = await generateObject({
                 runtime,
@@ -122,10 +122,10 @@ export const openChannelAction = {
                 schema: openChannelSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.log("Generated content:", { content });
+            elizaLogger.info("Generated content:", { content });
 
             const openChannelContent = content.object as OpenChannelContent;
-            elizaLogger.log("Parsed content:", openChannelContent);
+            elizaLogger.info("Parsed content:", openChannelContent);
 
             // 验证必要参数
             if (!openChannelContent.local_tokens || !openChannelContent.partner_public_key) {
@@ -137,14 +137,14 @@ export const openChannelAction = {
                     const errorResponse = {
                         text: "Error: local_tokens and partner_public_key are required",
                     };
-                    elizaLogger.log("Error callback response:", errorResponse);
+                    elizaLogger.info("Error callback response:", errorResponse);
                     callback(errorResponse);
                 }
                 return false;
             }
 
             const result = await action.openChannel(openChannelContent);
-            elizaLogger.log("Channel opened successfully:", {
+            elizaLogger.info("Channel opened successfully:", {
                 transaction_id: result.transaction_id,
                 transaction_vout: result.transaction_vout,
                 local_tokens: openChannelContent.local_tokens,
@@ -168,7 +168,7 @@ export const openChannelAction = {
                         }
                     },
                 };
-                elizaLogger.log("Success callback response:", response);
+                elizaLogger.info("Success callback response:", response);
                 callback(response);
             }
             return true;
@@ -184,7 +184,7 @@ export const openChannelAction = {
                 const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
                 };
-                elizaLogger.log("Error callback response:", errorResponse);
+                elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);
             }
             return false;
@@ -192,12 +192,12 @@ export const openChannelAction = {
     },
     template: openChannelTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.log("Validating openChannel action");
+        elizaLogger.info("Validating openChannel action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.log("Validation result:", { 
+        elizaLogger.info("Validation result:", { 
             isValid,
             hasCert: !!cert,
             hasMacaroon: !!macaroon,

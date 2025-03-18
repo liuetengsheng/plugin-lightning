@@ -42,14 +42,14 @@ export class LightningProvider {
             throw new Error("Missing required LND credentials");
         }
         try {
-            elizaLogger.log("Initializing LND client with credentials");
+            elizaLogger.info("Initializing LND client with credentials");
             const { lnd } = authenticatedLndGrpc({
                 cert: cert,
                 macaroon: macaroon,
                 socket: socket,
             });
             this.lndClient = lnd;
-            elizaLogger.log("LND client initialized successfully");
+            elizaLogger.info("LND client initialized successfully");
         } catch (error) {
             elizaLogger.error("Failed to initialize LND client:", {
                 error: error.message,
@@ -62,10 +62,10 @@ export class LightningProvider {
     }
 
     async getLndIdentity(): Promise<GetIdentityResult> {
-        elizaLogger.log("Getting LND identity");
+        elizaLogger.info("Getting LND identity");
         try {
             const result = await getIdentity({ lnd: this.lndClient });
-            elizaLogger.log("LND identity retrieved successfully:", {
+            elizaLogger.info("LND identity retrieved successfully:", {
                 public_key: result.public_key
             });
             return result;
@@ -80,7 +80,7 @@ export class LightningProvider {
 
     // 更新 getLndChannel 方法以支持过滤参数
     async getLndChannel(args: GetChannelsArgs = {}): Promise<GetChannelsResult> {
-        elizaLogger.log("Getting LND channels with args:", args);
+        elizaLogger.info("Getting LND channels with args:", args);
         try {
             const result = await getChannels({ 
                 lnd: this.lndClient,
@@ -90,7 +90,7 @@ export class LightningProvider {
                 is_public: args.is_public,
                 partner_public_key: args.partner_public_key
             });
-            elizaLogger.log("LND channels retrieved successfully:", {
+            elizaLogger.info("LND channels retrieved successfully:", {
                 totalChannels: result.channels.length,
                 activeChannels: result.channels.filter(c => c.is_active).length,
                 privateChannels: result.channels.filter(c => c.is_private).length
@@ -109,13 +109,13 @@ export class LightningProvider {
     async createInvoice(
         createInvoiceArgs: CreateInvoiceArgs,
     ): Promise<CreateInvoiceResult> {
-        elizaLogger.log("Creating invoice with args:", createInvoiceArgs);
+        elizaLogger.info("Creating invoice with args:", createInvoiceArgs);
         try {
             const result = await createInvoice({
                 lnd: this.lndClient,
                 ...createInvoiceArgs,
             });
-            elizaLogger.log("Invoice created successfully:", {
+            elizaLogger.info("Invoice created successfully:", {
                 id: result.id,
                 request: result.request,
                 tokens: result.tokens
@@ -132,7 +132,7 @@ export class LightningProvider {
     }
 
     async payInvoice(payInvoiceArgs: PayArgs): Promise<PayResult> {
-        elizaLogger.log("Paying invoice with args:", {
+        elizaLogger.info("Paying invoice with args:", {
             request: payInvoiceArgs.request,
             outgoing_channel: payInvoiceArgs.outgoing_channel,
             tokens: payInvoiceArgs.tokens
@@ -142,7 +142,7 @@ export class LightningProvider {
                 lnd: this.lndClient,
                 ...payInvoiceArgs,
             });
-            elizaLogger.log("Invoice paid successfully:", {
+            elizaLogger.info("Invoice paid successfully:", {
                 id: result.id,
                 is_confirmed: result.is_confirmed,
                 tokens: result.tokens,
@@ -160,7 +160,7 @@ export class LightningProvider {
     }
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
-        elizaLogger.log("Closing channel with args:", args);
+        elizaLogger.info("Closing channel with args:", args);
         try {
             if (!args.id && !(args.transaction_id && args.transaction_vout)) {
                 elizaLogger.error("Validation failed: Missing required parameters", {
@@ -183,7 +183,7 @@ export class LightningProvider {
 
             let closeArgs;
             if (args.is_force_close) {
-                elizaLogger.log("Performing force close");
+                elizaLogger.info("Performing force close");
                 // 强制关闭参数
                 closeArgs = {
                     ...baseArgs,
@@ -191,7 +191,7 @@ export class LightningProvider {
                     // 强制关闭不需要其他参数
                 };
             } else {
-                elizaLogger.log("Performing cooperative close");
+                elizaLogger.info("Performing cooperative close");
                 // 协作关闭参数
                 closeArgs = {
                     ...baseArgs,
@@ -203,7 +203,7 @@ export class LightningProvider {
             }
 
             const result = await closeChannel(closeArgs);
-            elizaLogger.log("Channel closed successfully:", {
+            elizaLogger.info("Channel closed successfully:", {
                 transaction_id: result.transaction_id,
                 transaction_vout: result.transaction_vout,
                 is_force_close: args.is_force_close
@@ -221,12 +221,12 @@ export class LightningProvider {
       
 
     async getChainAddresses(): Promise<GetChainAddressesResult> {
-        elizaLogger.log("Getting chain addresses");
+        elizaLogger.info("Getting chain addresses");
         try {
             const result = await getChainAddresses({
                 lnd: this.lndClient
             });
-            elizaLogger.log("Chain addresses retrieved successfully:", {
+            elizaLogger.info("Chain addresses retrieved successfully:", {
                 totalAddresses: result.addresses.length,
                 changeAddresses: result.addresses.filter(addr => addr.is_change).length
             });
@@ -241,7 +241,7 @@ export class LightningProvider {
     }
 
     async openChannel(args: OpenChannelArgs): Promise<OpenChannelResult> {
-        elizaLogger.log("Opening channel with args:", {
+        elizaLogger.info("Opening channel with args:", {
             local_tokens: args.local_tokens,
             partner_public_key: args.partner_public_key,
             is_private: args.is_private,
@@ -258,13 +258,13 @@ export class LightningProvider {
 
             // 如果没有提供地址，尝试获取一个
             if (!args.cooperative_close_address) {
-                elizaLogger.log("No cooperative close address provided, fetching one");
+                elizaLogger.info("No cooperative close address provided, fetching one");
                 const { addresses } = await this.getChainAddresses();
                 // 优先使用非找零地址
                 const mainAddress = addresses.find(addr => !addr.is_change);
                 if (mainAddress) {
                     args.cooperative_close_address = mainAddress.address;
-                    elizaLogger.log("Using fetched cooperative close address:", {
+                    elizaLogger.info("Using fetched cooperative close address:", {
                         address: args.cooperative_close_address
                     });
                 }
@@ -274,7 +274,7 @@ export class LightningProvider {
                 lnd: this.lndClient,
                 ...args
             });
-            elizaLogger.log("Channel opened successfully:", {
+            elizaLogger.info("Channel opened successfully:", {
                 transaction_id: result.transaction_id,
                 transaction_vout: result.transaction_vout
             });
@@ -290,7 +290,7 @@ export class LightningProvider {
     }
 
     async createChainAddress(args: CreateChainAddressArgs = {}): Promise<CreateChainAddressResult> {
-        elizaLogger.log("Creating chain address with args:", {
+        elizaLogger.info("Creating chain address with args:", {
             format: args.format || "p2wpkh",
             is_unused: args.is_unused
         });
@@ -303,7 +303,7 @@ export class LightningProvider {
                 format,
                 is_unused: args.is_unused
             });
-            elizaLogger.log("Chain address created successfully:", {
+            elizaLogger.info("Chain address created successfully:", {
                 address: result.address,
                 format
             });
@@ -319,12 +319,12 @@ export class LightningProvider {
     }
 
     async getChainBalance(): Promise<GetChainBalanceResult> {
-        elizaLogger.log("Getting chain balance");
+        elizaLogger.info("Getting chain balance");
         try {
             const result = await getChainBalance({
                 lnd: this.lndClient
             });
-            elizaLogger.log("Chain balance retrieved successfully:", {
+            elizaLogger.info("Chain balance retrieved successfully:", {
                 chain_balance: result.chain_balance
             });
             return result;
@@ -339,11 +339,11 @@ export class LightningProvider {
 }
 
 export const initLightningProvider = async (runtime: IAgentRuntime) => {
-    elizaLogger.log("Initializing LightningProvider");
+    elizaLogger.info("Initializing LightningProvider");
     const cert = runtime.getSetting("LND_TLS_CERT");
     const macaroon = runtime.getSetting("LND_MACAROON");
     const socket = runtime.getSetting("LND_SOCKET");
-    elizaLogger.log("Retrieved LND credentials:", {
+    elizaLogger.info("Retrieved LND credentials:", {
         hasCert: !!cert,
         hasMacaroon: !!macaroon,
         hasSocket: !!socket
@@ -357,27 +357,27 @@ export const lndProvider: Provider = {
         _message: Memory,
         state?: State,
     ): Promise<string | null> {
-        elizaLogger.log("LND provider get called with params:", {
+        elizaLogger.info("LND provider get called with params:", {
             message: _message,
             state,
             hasState: !!state
         });
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const { public_key: nodePubkey } = await lightningProvider.getLndIdentity();
-            elizaLogger.log("Retrieved node public key:", { nodePubkey });
+            elizaLogger.info("Retrieved node public key:", { nodePubkey });
             
             const { channels } = await lightningProvider.getLndChannel();
-            elizaLogger.log("Retrieved channels:", {
+            elizaLogger.info("Retrieved channels:", {
                 totalChannels: channels.length,
                 activeChannels: channels.filter(c => c.is_active).length
             });
             
             const agentName = state?.agentName || "The agent";
             const response = `${agentName}'s Lightning Node publickey: ${nodePubkey}\nChannel count: ${channels.length}`;
-            elizaLogger.log("Generated provider response:", { response });
+            elizaLogger.info("Generated provider response:", { response });
             return response;
         } catch (error) {
             elizaLogger.error("Error in Lightning provider:", {

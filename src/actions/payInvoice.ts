@@ -21,14 +21,14 @@ type ExtendedPayResult = PayResult & { outgoing_channel: string };
 export class PayInvoiceAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.log("PayInvoiceAction initialized");
+        elizaLogger.info("PayInvoiceAction initialized");
     }
 
     async getAvalibleChannelId(): Promise<string> {
-        elizaLogger.log("PayInvoiceAction.getAvalibleChannelId called");
+        elizaLogger.info("PayInvoiceAction.getAvalibleChannelId called");
         try {
             const { channels } = await this.lightningProvider.getLndChannel();
-            elizaLogger.log("Retrieved channels:", { 
+            elizaLogger.info("Retrieved channels:", { 
                 totalChannels: channels.length,
                 activeChannels: channels.filter(c => c.is_active).length
             });
@@ -36,21 +36,21 @@ export class PayInvoiceAction {
             const filteredActiveChannels = channels.filter(
                 (channel) => channel.is_active === true
             );
-            elizaLogger.log("Filtered active channels:", {
+            elizaLogger.info("Filtered active channels:", {
                 count: filteredActiveChannels.length
             });
             
             const sortedChannels = filteredActiveChannels.sort(
                 (a, b) => b.local_balance - a.local_balance
             );
-            elizaLogger.log("Sorted channels by local balance:", {
+            elizaLogger.info("Sorted channels by local balance:", {
                 count: sortedChannels.length,
                 topBalance: sortedChannels[0]?.local_balance
             });
             
             if (sortedChannels.length > 0) {
                 const channelId = sortedChannels[0].id;
-                elizaLogger.log("Selected channel ID:", { channelId });
+                elizaLogger.info("Selected channel ID:", { channelId });
                 return channelId;
             }
             elizaLogger.warn("No available channels found");
@@ -65,7 +65,7 @@ export class PayInvoiceAction {
     }
 
     async payInvoice(params: PayArgs): Promise<ExtendedPayResult> {
-        elizaLogger.log("PayInvoiceAction.payInvoice called with params:", {
+        elizaLogger.info("PayInvoiceAction.payInvoice called with params:", {
             request: params.request,
             outgoing_channel: params.outgoing_channel
         });
@@ -77,13 +77,13 @@ export class PayInvoiceAction {
                 throw new Error("no avalible channel");
             }
             
-            elizaLogger.log("Selected outgoing channel:", { outgoing_channel });
+            elizaLogger.info("Selected outgoing channel:", { outgoing_channel });
             
             const requestArgs = {
                 outgoing_channel: outgoing_channel,
                 ...params,
             };
-            elizaLogger.log("Constructed payment request args:", {
+            elizaLogger.info("Constructed payment request args:", {
                 outgoing_channel: requestArgs.outgoing_channel,
                 request: requestArgs.request
             });
@@ -91,7 +91,7 @@ export class PayInvoiceAction {
             const retPayInvoice = await this.lightningProvider.payInvoice(
                 requestArgs
             );
-            elizaLogger.log("Payment result:", {
+            elizaLogger.info("Payment result:", {
                 id: retPayInvoice.id,
                 is_confirmed: retPayInvoice.is_confirmed,
                 tokens: retPayInvoice.tokens,
@@ -133,7 +133,7 @@ export const payInvoiceAction = {
             content?: { success: boolean };
         }) => void
     ) => {
-        elizaLogger.log("payInvoice action handler called with params:", {
+        elizaLogger.info("payInvoice action handler called with params:", {
             message: _message,
             state,
             options: _options,
@@ -142,17 +142,17 @@ export const payInvoiceAction = {
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const action = new PayInvoiceAction(lightningProvider);
-            elizaLogger.log("PayInvoiceAction created");
+            elizaLogger.info("PayInvoiceAction created");
 
             // Compose bridge context
             const payInvoiceContext = composeContext({
                 state,
                 template: payInvoiceTemplate,
             });
-            elizaLogger.log("Bridge context composed:", { context: payInvoiceContext });
+            elizaLogger.info("Bridge context composed:", { context: payInvoiceContext });
             
             const content = await generateObject({
                 runtime,
@@ -160,18 +160,18 @@ export const payInvoiceAction = {
                 schema: payInvoiceSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.log("Generated content:", { content });
+            elizaLogger.info("Generated content:", { content });
 
             const payInvoiceContent = content.object as PayInvoiceContent;
-            elizaLogger.log("Parsed content:", payInvoiceContent);
+            elizaLogger.info("Parsed content:", payInvoiceContent);
 
             const payInvoiceOptions: PayArgs = {
                 request: payInvoiceContent.request,
             };
-            elizaLogger.log("Constructed payment options:", payInvoiceOptions);
+            elizaLogger.info("Constructed payment options:", payInvoiceOptions);
 
             const payInvoiceResp = await action.payInvoice(payInvoiceOptions);
-            elizaLogger.log("Payment completed:", {
+            elizaLogger.info("Payment completed:", {
                 is_confirmed: payInvoiceResp.is_confirmed,
                 tokens: payInvoiceResp.tokens,
                 fee: payInvoiceResp.fee,
@@ -184,7 +184,7 @@ export const payInvoiceAction = {
                         text: `Successfully paid invoice ${payInvoiceContent.request} from ${payInvoiceResp.outgoing_channel};\nAmount: ${payInvoiceResp.tokens};\nFee: ${payInvoiceResp.fee};\nPayment Hash: ${payInvoiceResp.id};`,
                         content: { success: true },
                     };
-                    elizaLogger.log("Success callback response:", response);
+                    elizaLogger.info("Success callback response:", response);
                     callback(response);
                 } else {
                     const response = {
@@ -193,7 +193,7 @@ export const payInvoiceAction = {
                             success: false,
                         },
                     };
-                    elizaLogger.log("Failure callback response:", response);
+                    elizaLogger.info("Failure callback response:", response);
                     callback(response);
                 }
             }
@@ -210,7 +210,7 @@ export const payInvoiceAction = {
                 const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
                 };
-                elizaLogger.log("Error callback response:", errorResponse);
+                elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);
             }
             return false;
@@ -218,12 +218,12 @@ export const payInvoiceAction = {
     },
     template: payInvoiceTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.log("Validating payInvoice action");
+        elizaLogger.info("Validating payInvoice action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.log("Validation result:", { 
+        elizaLogger.info("Validation result:", { 
             isValid,
             hasCert: !!cert,
             hasMacaroon: !!macaroon,

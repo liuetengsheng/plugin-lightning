@@ -19,11 +19,11 @@ export { createChainAddressTemplate };
 export class CreateChainAddressAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.log("CreateChainAddressAction initialized");
+        elizaLogger.info("CreateChainAddressAction initialized");
     }
 
     async createChainAddress(params: CreateChainAddressArgs): Promise<CreateChainAddressResult> {
-        elizaLogger.log("CreateChainAddressAction.createChainAddress called with params:", {
+        elizaLogger.info("CreateChainAddressAction.createChainAddress called with params:", {
             format: params.format || "p2wpkh",
             is_unused: params.is_unused
         });
@@ -39,7 +39,7 @@ export class CreateChainAddressAction {
             }
 
             const result = await this.lightningProvider.createChainAddress(params);
-            elizaLogger.log("Chain address created successfully:", {
+            elizaLogger.info("Chain address created successfully:", {
                 address: result.address,
                 format: params.format || "p2wpkh",
                 is_unused: params.is_unused
@@ -77,7 +77,7 @@ export const createChainAddressAction = {
             content?: { success: boolean; address?: string };
         }) => void
     ) => {
-        elizaLogger.log("createChainAddress action handler called with params:", {
+        elizaLogger.info("createChainAddress action handler called with params:", {
             message: _message,
             state,
             options: _options,
@@ -86,17 +86,17 @@ export const createChainAddressAction = {
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const action = new CreateChainAddressAction(lightningProvider);
-            elizaLogger.log("CreateChainAddressAction created");
+            elizaLogger.info("CreateChainAddressAction created");
 
             // Compose bridge context
             const createChainAddressContext = composeContext({
                 state,
                 template: createChainAddressTemplate,
             });
-            elizaLogger.log("Bridge context composed:", { context: createChainAddressContext });
+            elizaLogger.info("Bridge context composed:", { context: createChainAddressContext });
             
             const content = await generateObject({
                 runtime,
@@ -104,10 +104,10 @@ export const createChainAddressAction = {
                 schema: createChainAddressSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.log("Generated content:", { content });
+            elizaLogger.info("Generated content:", { content });
 
             const createChainAddressContent = content.object as CreateChainAddressContent;
-            elizaLogger.log("Parsed content:", createChainAddressContent);
+            elizaLogger.info("Parsed content:", createChainAddressContent);
 
             // 验证地址格式
             if (createChainAddressContent.format && 
@@ -120,14 +120,14 @@ export const createChainAddressAction = {
                     const errorResponse = {
                         text: "Error: Invalid address format. Must be one of: p2wpkh, np2wpkh, p2tr",
                     };
-                    elizaLogger.log("Error callback response:", errorResponse);
+                    elizaLogger.info("Error callback response:", errorResponse);
                     callback(errorResponse);
                 }
                 return false;
             }
 
             const result = await action.createChainAddress(createChainAddressContent);
-            elizaLogger.log("Chain address created successfully:", {
+            elizaLogger.info("Chain address created successfully:", {
                 address: result.address,
                 format: createChainAddressContent.format || "p2wpkh",
                 is_unused: createChainAddressContent.is_unused
@@ -145,7 +145,7 @@ export const createChainAddressAction = {
                         address: result.address
                     },
                 };
-                elizaLogger.log("Success callback response:", response);
+                elizaLogger.info("Success callback response:", response);
                 callback(response);
             }
             return true;
@@ -161,7 +161,7 @@ export const createChainAddressAction = {
                 const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
                 };
-                elizaLogger.log("Error callback response:", errorResponse);
+                elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);
             }
             return false;
@@ -169,12 +169,12 @@ export const createChainAddressAction = {
     },
     template: createChainAddressTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.log("Validating createChainAddress action");
+        elizaLogger.info("Validating createChainAddress action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.log("Validation result:", { 
+        elizaLogger.info("Validation result:", { 
             isValid,
             hasCert: !!cert,
             hasMacaroon: !!macaroon,

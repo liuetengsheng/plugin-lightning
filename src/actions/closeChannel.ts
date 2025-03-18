@@ -19,11 +19,11 @@ export { closeChannelTemplate };
 export class CloseChannelAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.log("CloseChannelAction initialized");
+        elizaLogger.info("CloseChannelAction initialized");
     }
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
-        elizaLogger.log("Closing channel with args:", args);
+        elizaLogger.info("Closing channel with args:", args);
         try {
             if (!args.id && !(args.transaction_id && args.transaction_vout)) {
                 elizaLogger.error("Validation failed: Missing required parameters", {
@@ -45,7 +45,7 @@ export class CloseChannelAction {
             };
 
             if (args.is_force_close) {
-                elizaLogger.log("Performing force close");
+                elizaLogger.info("Performing force close");
                 // 强制关闭参数
                 const forceCloseArgs = {
                     ...baseArgs,
@@ -53,13 +53,13 @@ export class CloseChannelAction {
                 };
 
                 const result = await this.lightningProvider.closeChannel(forceCloseArgs);
-                elizaLogger.log("Channel force closed successfully:", {
+                elizaLogger.info("Channel force closed successfully:", {
                     transaction_id: result.transaction_id,
                     transaction_vout: result.transaction_vout
                 });
                 return result;
             } else {
-                elizaLogger.log("Performing cooperative close");
+                elizaLogger.info("Performing cooperative close");
                 // 协作关闭参数
                 const coopCloseArgs = {
                     ...baseArgs,
@@ -71,7 +71,7 @@ export class CloseChannelAction {
                 };
 
                 const result = await this.lightningProvider.closeChannel(coopCloseArgs);
-                elizaLogger.log("Channel cooperatively closed successfully:", {
+                elizaLogger.info("Channel cooperatively closed successfully:", {
                     transaction_id: result.transaction_id,
                     transaction_vout: result.transaction_vout
                 });
@@ -118,7 +118,7 @@ export const closeChannelAction = {
             content?: { success: boolean; transaction?: { id: string; vout: number } };
         }) => void
     ) => {
-        elizaLogger.log("closeChannel action handler called with params:", {
+        elizaLogger.info("closeChannel action handler called with params:", {
             message: _message,
             state,
             options: _options,
@@ -127,17 +127,17 @@ export const closeChannelAction = {
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const action = new CloseChannelAction(lightningProvider);
-            elizaLogger.log("CloseChannelAction created");
+            elizaLogger.info("CloseChannelAction created");
 
             // Compose bridge context
             const closeChannelContext = composeContext({
                 state,
                 template: closeChannelTemplate,
             });
-            elizaLogger.log("Bridge context composed:", { context: closeChannelContext });
+            elizaLogger.info("Bridge context composed:", { context: closeChannelContext });
             
             const content = await generateObject({
                 runtime,
@@ -145,10 +145,10 @@ export const closeChannelAction = {
                 schema: closeChannelSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.log("Generated content:", { content });
+            elizaLogger.info("Generated content:", { content });
 
             const closeChannelContent = content.object as CloseChannelContent;
-            elizaLogger.log("Parsed content:", closeChannelContent);
+            elizaLogger.info("Parsed content:", closeChannelContent);
 
             // 验证必要参数
             if (!closeChannelContent.id && 
@@ -162,14 +162,14 @@ export const closeChannelAction = {
                     const errorResponse = {
                         text: "Error: Either channel id or transaction details (id and vout) are required",
                     };
-                    elizaLogger.log("Error callback response:", errorResponse);
+                    elizaLogger.info("Error callback response:", errorResponse);
                     callback(errorResponse);
                 }
                 return false;
             }
 
             const result = await action.closeChannel(closeChannelContent);
-            elizaLogger.log("Channel closed successfully:", {
+            elizaLogger.info("Channel closed successfully:", {
                 transaction_id: result.transaction_id,
                 transaction_vout: result.transaction_vout,
                 is_force_close: closeChannelContent.is_force_close,
@@ -187,7 +187,7 @@ export const closeChannelAction = {
                         }
                     },
                 };
-                elizaLogger.log("Success callback response:", response);
+                elizaLogger.info("Success callback response:", response);
                 callback(response);
             }
             return true;
@@ -203,7 +203,7 @@ export const closeChannelAction = {
                 const errorResponse = {
                     text: `Error: ${error.message || "An error occurred"}`,
                 };
-                elizaLogger.log("Error callback response:", errorResponse);
+                elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);
             }
             return false;
@@ -211,12 +211,12 @@ export const closeChannelAction = {
     },
     template: closeChannelTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.log("Validating closeChannel action");
+        elizaLogger.info("Validating closeChannel action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.log("Validation result:", { 
+        elizaLogger.info("Validation result:", { 
             isValid,
             hasCert: !!cert,
             hasMacaroon: !!macaroon,

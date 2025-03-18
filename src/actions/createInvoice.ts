@@ -19,13 +19,13 @@ export { createInvoiceTemplate };
 export class CreateInvoiceAction {
     constructor(private lightningProvider: LightningProvider) {
         this.lightningProvider = lightningProvider;
-        elizaLogger.log("CreateInvoiceAction initialized");
+        elizaLogger.info("CreateInvoiceAction initialized");
     }
 
     async createInvoice(
         params: CreateInvoiceArgs,
     ): Promise<CreateInvoiceResult> {
-        elizaLogger.log("CreateInvoiceAction.createInvoice called with params:", params);
+        elizaLogger.info("CreateInvoiceAction.createInvoice called with params:", params);
         if (!params.tokens) {
             elizaLogger.error("CreateInvoiceAction.createInvoice validation failed: tokens is required");
             throw new Error("tokens is required.");
@@ -33,7 +33,7 @@ export class CreateInvoiceAction {
         try {
             const retCreateInvoice =
                 await this.lightningProvider.createInvoice(params);
-            elizaLogger.log("CreateInvoiceAction.createInvoice result:", {
+            elizaLogger.info("CreateInvoiceAction.createInvoice result:", {
                 tokens: retCreateInvoice.tokens,
                 request: retCreateInvoice.request,
                 id: retCreateInvoice.id
@@ -63,7 +63,7 @@ export const createInvoiceAction = {
             content?: { success: boolean; invoice?: string };
         }) => void,
     ) => {
-        elizaLogger.log("CreateInvoice action handler called with params:", {
+        elizaLogger.info("CreateInvoice action handler called with params:", {
             message: _message,
             state,
             options: _options,
@@ -72,33 +72,33 @@ export const createInvoiceAction = {
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.log("LightningProvider initialized successfully");
+            elizaLogger.info("LightningProvider initialized successfully");
             
             const action = new CreateInvoiceAction(lightningProvider);
-            elizaLogger.log("CreateInvoiceAction created");
+            elizaLogger.info("CreateInvoiceAction created");
 
             // Compose bridge context
             const createInvoiceContext = composeContext({
                 state,
                 template: createInvoiceTemplate,
             });
-            elizaLogger.log("Bridge context composed:", { context: createInvoiceContext });
+            elizaLogger.info("Bridge context composed:", { context: createInvoiceContext });
             
             const content = await generateObjectDeprecated({
                 runtime,
                 context: createInvoiceContext,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.log("Generated content:", { content });
+            elizaLogger.info("Generated content:", { content });
 
             const createInvoiceOptions = {
                 tokens: content.tokens,
             };
-            elizaLogger.log("Parsed invoice options:", createInvoiceOptions);
+            elizaLogger.info("Parsed invoice options:", createInvoiceOptions);
 
             const createInvoiceResp =
                 await action.createInvoice(createInvoiceOptions);
-            elizaLogger.log("Invoice created successfully:", {
+            elizaLogger.info("Invoice created successfully:", {
                 tokens: createInvoiceResp.tokens,
                 request: createInvoiceResp.request,
                 id: createInvoiceResp.id
@@ -112,7 +112,7 @@ export const createInvoiceAction = {
                         invoice: createInvoiceResp.request,
                     },
                 };
-                elizaLogger.log("Callback response:", response);
+                elizaLogger.info("Callback response:", response);
                 callback(response);
             }
             return true;
@@ -128,7 +128,7 @@ export const createInvoiceAction = {
                 const errorResponse = {
                     text: `Error: ${error.message}`,
                 };
-                elizaLogger.log("Error callback response:", errorResponse);
+                elizaLogger.info("Error callback response:", errorResponse);
                 callback(errorResponse);
             }
             return false;
@@ -136,12 +136,12 @@ export const createInvoiceAction = {
     },
     template: createInvoiceTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.log("Validating CreateInvoice action");
+        elizaLogger.info("Validating CreateInvoice action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.log("Validation result:", { 
+        elizaLogger.info("Validation result:", { 
             isValid,
             hasCert: !!cert,
             hasMacaroon: !!macaroon,
