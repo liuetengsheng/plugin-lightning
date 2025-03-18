@@ -72,7 +72,7 @@ First, review the recent messages from the conversation:
 Now, process the user's request and provide your response.
 `;
 
-export const getChannelsTemplate = `You are an AI assistant specialized in processing requests to get lightning network channels information. Your task is to extract specific information from user messages and format it into a structured JSON response.
+export const getChannelsTemplate = `You are an AI assistant specialized in processing requests to get lightning network channels information.
 
 First, review the recent messages from the conversation:
 
@@ -80,29 +80,41 @@ First, review the recent messages from the conversation:
 {{recentMessages}}
 </recent_messages>
 
-Your goal is to extract the following optional filter parameters:
-1. is_active (boolean)
-2. is_offline (boolean)
-3. is_private (boolean)
-4. is_public (boolean)
-5. partner_public_key (string)
+Your task is to process requests for viewing lightning network channels. 
+No parameters are needed as this action will return ALL channels.
 
-Respond with a JSON markdown block containing the extracted values:
+Respond with an empty JSON object:
+
+\`\`\`json
+{}
+\`\`\`
+
+Now, process the user's request and provide your response.
+`;
+
+export const closeChannelTemplate = `You are an AI assistant specialized in processing requests to close a lightning network channel.
+
+First, review the recent messages from the conversation:
+
+<recent_messages>
+{{recentMessages}}
+</recent_messages>
+
+Your task is to extract ONLY the channel ID from the user's message.
+This is the only required parameter for closing a channel.
+
+Respond with a JSON markdown block containing the channel ID:
 
 \`\`\`json
 {
-    "is_active"?: boolean;
-    "is_offline"?: boolean;
-    "is_private"?: boolean;
-    "is_public"?: boolean;
-    "partner_public_key"?: string;
+    "id": "string"
 }
 \`\`\`
 
 Now, process the user's request and provide your response.
 `;
 
-export const closeChannelTemplate = `You are an AI assistant specialized in processing requests to close a lightning network channel. Your task is to extract specific information from user messages and format it into a structured JSON response.
+export const openChannelTemplate = `You are an AI assistant specialized in processing requests to open a new lightning network channel. Your task is to extract specific information from user messages.
 
 First, review the recent messages from the conversation:
 
@@ -110,90 +122,14 @@ First, review the recent messages from the conversation:
 {{recentMessages}}
 </recent_messages>
 
-Your goal is to extract the following information for channel closing:
-1. Channel ID or Transaction Details (required - either channel_id OR transaction_id + transaction_vout)
-2. Closing Options (optional):
-   - address (送金地址)
-   - is_force_close (是否强制关闭)
-   - is_graceful_close (是否等待待处理支付完成后再关闭)
-   - max_tokens_per_vbyte (最大每字节手续费)
-   - tokens_per_vbyte (目标每字节手续费)
-   - target_confirmations (目标确认数)
-   - public_key (节点公钥)
-   - socket (节点地址)
+Your goal is to extract ONLY the channel capacity (local_tokens) from the user's message.
+The partner node information will be obtained from environment settings.
 
-Respond with a JSON markdown block containing the extracted values:
+Respond with a JSON markdown block containing only the extracted capacity value:
 
 \`\`\`json
 {
-    "id"?: string;
-    "transaction_id"?: string;
-    "transaction_vout"?: number;
-    "address"?: string;
-    "is_force_close"?: boolean;
-    "is_graceful_close"?: boolean;
-    "max_tokens_per_vbyte"?: number;
-    "tokens_per_vbyte"?: number;
-    "target_confirmations"?: number;
-    "public_key"?: string;
-    "socket"?: string;
-}
-\`\`\`
-
-Now, process the user's request and provide your response.
-`;
-
-export const openChannelTemplate = `You are an AI assistant specialized in processing requests to open a new lightning network channel. Your task is to extract specific information from user messages and format it into a structured JSON response.
-
-First, review the recent messages from the conversation:
-
-<recent_messages>
-{{recentMessages}}
-</recent_messages>
-
-Your goal is to extract the following information for channel opening:
-1. Required Parameters:
-   - local_tokens (通道总容量)
-   - partner_public_key (对方节点公钥)
-
-2. Optional Parameters:
-   - base_fee_mtokens (路由基础费用，毫聪)
-   - chain_fee_tokens_per_vbyte (链上每字节费用)
-   - cooperative_close_address (指定协作关闭地址，如果不提供将自动获取)
-   - description (通道描述)
-   - fee_rate (路由费率，百万分之一)
-   - give_tokens (赠送给对方的聪数)
-   - is_allowing_minimal_reserve (允许最小储备)
-   - is_max_funding (使用最大可用资金)
-   - is_private (是否私有通道)
-   - is_simplified_taproot (是否简化 Taproot 通道)
-   - is_trusted_funding (是否信任资金)
-   - min_confirmations (UTXO最小确认数)
-   - min_htlc_mtokens (最小HTLC毫聪)
-   - partner_csv_delay (对方CSV延迟)
-   - partner_socket (对方节点地址)
-
-Respond with a JSON markdown block containing the extracted values:
-
-\`\`\`json
-{
-    "local_tokens": number,
-    "partner_public_key": string,
-    "base_fee_mtokens"?: string,
-    "chain_fee_tokens_per_vbyte"?: number,
-    "cooperative_close_address"?: string,
-    "description"?: string,
-    "fee_rate"?: number,
-    "give_tokens"?: number,
-    "is_allowing_minimal_reserve"?: boolean,
-    "is_max_funding"?: boolean,
-    "is_private"?: boolean,
-    "is_simplified_taproot"?: boolean,
-    "is_trusted_funding"?: boolean,
-    "min_confirmations"?: number,
-    "min_htlc_mtokens"?: string,
-    "partner_csv_delay"?: number,
-    "partner_socket"?: string
+    "local_tokens": number
 }
 \`\`\`
 

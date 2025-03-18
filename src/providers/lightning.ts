@@ -67,11 +67,10 @@ export class LightningProvider {
         }
     }
 
-    async getLndChannel(args: GetChannelsArgs = {}): Promise<GetChannelsResult> {
+    async getLndChannel(): Promise<GetChannelsResult> {
         try {
             const result = await getChannels({ 
-                lnd: this.lndClient,
-                ...args
+                lnd: this.lndClient
             });
             elizaLogger.info("Channels retrieved:", {
                 total: result.channels.length,
@@ -80,9 +79,10 @@ export class LightningProvider {
             return result;
         } catch (error) {
             elizaLogger.error("Get channels failed:", {
-                error: error.message,
-                stack: error.stack,
-                args
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack
             });
             throw error;
         }
@@ -133,81 +133,38 @@ export class LightningProvider {
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
         try {
-            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
-                elizaLogger.error("Missing required parameters for channel close", {
-                    id: args.id,
-                    transaction_id: args.transaction_id,
-                    transaction_vout: args.transaction_vout
+            if (!args.id) {
+                elizaLogger.error("Missing required parameter for channel close", {
+                    id: args.id
                 });
-                throw new Error("Either channel id or transaction details (id and vout) are required");
+                throw new Error("Channel id is required");
             }
 
-            const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
-
-            // 构造基础参数
-            const baseArgs = {
+            // 始终使用强制关闭
+            const closeArgs = {
                 lnd: this.lndClient,
-                ...(args.id ? { id: args.id } : {}),
-                ...(args.transaction_id && args.transaction_vout ? {
-                    transaction_id: args.transaction_id,
-                    transaction_vout: args.transaction_vout
-                } : {})
+                id: args.id,
+                is_force_close: true
             };
-
-            let result: CloseChannelResult;
-
-            if (args.is_force_close) {
-                // 强制关闭时：仅传 force close 所需参数，移除协作关闭专用的 address、public_key、socket 等字段
-                const forceCloseArgs = {
-                    ...baseArgs,
-                    is_force_close: true,
-                    ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
-                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
-                };
-                // 清除所有 undefined 的属性
-                Object.keys(forceCloseArgs).forEach(key => {
-                    if (forceCloseArgs[key] === undefined) delete forceCloseArgs[key];
-                });
-                
-                result = await closeChannel(forceCloseArgs as any) as CloseChannelResult;
-            } else {
-                // 协作关闭时：传入协作关闭所需的参数，包括 address、public_key、socket 等
-                const coopCloseArgs = {
-                    ...baseArgs,
-                    is_force_close: false,
-                    ...(args.is_graceful_close ? { is_graceful_close: true } : {}),
-                    ...(args.address ? { address: args.address } : {}),
-                    ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
-                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
-                    ...(args.public_key ? { public_key: args.public_key } : {}),
-                    ...(args.socket ? { socket: args.socket } : {})
-                };
-                // 清除所有 undefined 的属性
-                Object.keys(coopCloseArgs).forEach(key => {
-                    if (coopCloseArgs[key] === undefined) delete coopCloseArgs[key];
-                });
-                
-                result = await closeChannel(coopCloseArgs as any) as CloseChannelResult;
-            }
+            
+            const result = await closeChannel(closeArgs as any) as CloseChannelResult;
 
             elizaLogger.info("Channel closed:", {
-                channel_id: channelId,
+                channel_id: args.id,
                 transaction_id: result.transaction_id,
-                type: args.is_force_close ? "force" : "cooperative"
+                type: "force"
             });
             
             return result;
         } catch (error) {
-            const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
             elizaLogger.error("Close channel failed:", {
-                channel_id: channelId,
-                error: error.message,
-                stack: error.stack,
-                is_force_close: args.is_force_close
+                channel_id: args.id,
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack
             });
-            throw new Error(`Failed to close channel: ${error.message}`);
+            throw new Error(`Failed to close channel: ${error?.message || String(error)}`);
         }
     }
       
@@ -232,20 +189,13 @@ export class LightningProvider {
 
     async openChannel(args: OpenChannelArgs): Promise<OpenChannelResult> {
         try {
-            if (!args.local_tokens || !args.partner_public_key) {
+            if (!args.local_tokens || !args.partner_public_key || !args.partner_socket) {
                 elizaLogger.error("Missing required parameters for channel open", {
                     local_tokens: args.local_tokens,
-                    partner_public_key: args.partner_public_key
+                    partner_public_key: args.partner_public_key,
+                    partner_socket: args.partner_socket
                 });
-                throw new Error("local_tokens and partner_public_key are required");
-            }
-
-            if (!args.cooperative_close_address) {
-                const { addresses } = await this.getChainAddresses();
-                const mainAddress = addresses.find(addr => !addr.is_change);
-                if (mainAddress) {
-                    args.cooperative_close_address = mainAddress.address;
-                }
+                throw new Error("local_tokens, partner_public_key and partner_socket are required");
             }
             
             const result = await openChannel({
@@ -256,7 +206,8 @@ export class LightningProvider {
             elizaLogger.info("Channel opened:", {
                 transaction_id: result.transaction_id,
                 local_tokens: args.local_tokens,
-                partner_public_key: args.partner_public_key
+                partner_public_key: args.partner_public_key,
+                partner_socket: args.partner_socket
             });
             return result;
         } catch (error) {

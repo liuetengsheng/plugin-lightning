@@ -24,67 +24,41 @@ export class CloseChannelAction {
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
         try {
             // 验证基本参数
-            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
-                elizaLogger.error("Missing required parameters", {
-                    id: args.id,
-                    transaction_id: args.transaction_id,
-                    transaction_vout: args.transaction_vout
-                });
-                throw new Error("Either channel id or transaction details are required");
-            }
-
-            // 验证协作关闭所需的参数
-            if (!args.is_force_close && (!args.public_key || !args.socket)) {
-                elizaLogger.error("Missing parameters for cooperative close", {
-                    public_key: args.public_key,
-                    socket: args.socket
-                });
-                throw new Error("Cooperative close requires public_key and socket");
+            if (!args.id) {
+                elizaLogger.error("Missing required parameter: id");
+                throw new Error("Channel id is required");
             }
             
-            const result = await this.lightningProvider.closeChannel({
-                ...args,
-                is_force_close: args.is_force_close || false
-            });
+            // 关闭通道只需要id参数
+            const closeArgs: CloseChannelArgs = {
+                id: args.id
+            };
+            
+            elizaLogger.info("Force closing channel:", { id: args.id });
+            const result = await this.lightningProvider.closeChannel(closeArgs);
 
             elizaLogger.info("Channel closed:", { 
-                transaction_id: result.transaction_id,
-                type: args.is_force_close ? "force" : "cooperative" 
+                id: args.id,
+                transaction_id: result.transaction_id
             });
             return result;
         } catch (error) {
             elizaLogger.error("Close channel failed:", {
-                error: error.message,
-                stack: error.stack,
-                channel: args.id || `${args.transaction_id}:${args.transaction_vout}`
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack,
+                id: args.id
             });
             throw error;
         }
     }
 }
 
-// 修改 schema 定义，添加必要的验证
+// 简化schema，只需要id
 const closeChannelSchema = z.object({
-    id: z.string().optional(),
-    transaction_id: z.string().optional(),
-    transaction_vout: z.number().optional(),
-    is_force_close: z.boolean().optional().default(false),
-    // 协作关闭的参数
-    public_key: z.string().optional(),
-    socket: z.string().optional(),
-    // 可选参数
-    address: z.string().optional(),
-    target_confirmations: z.number().optional(),
-    tokens_per_vbyte: z.number().optional(),
-    is_graceful_close: z.boolean().optional(),
-    max_tokens_per_vbyte: z.number().optional()
-}).refine(
-    data => !!(data.id || (data.transaction_id && data.transaction_vout)),
-    "Either channel id or transaction details are required"
-).refine(
-    data => data.is_force_close || !!(data.public_key && data.socket),
-    "Cooperative close requires public_key and socket"
-);
+    id: z.string()
+});
 
 type CloseChannelContent = z.infer<typeof closeChannelSchema>;
 
@@ -119,13 +93,12 @@ export const closeChannelAction = {
 
             const closeChannelContent = content.object as CloseChannelContent;
             
-            // 只记录关键验证错误
-            if (!closeChannelContent.id && 
-                !(closeChannelContent.transaction_id && closeChannelContent.transaction_vout)) {
-                elizaLogger.error("Missing required parameters for channel close");
+            // 验证必要参数
+            if (!closeChannelContent.id) {
+                elizaLogger.error("Missing required parameter: id");
                 if (callback) {
                     callback({
-                        text: "Error: Either channel id or transaction details are required"
+                        text: "Error: Channel id is required"
                     });
                 }
                 return false;
@@ -135,7 +108,7 @@ export const closeChannelAction = {
             
             if (callback) {
                 callback({
-                    text: `Successfully closed channel. Transaction ID: ${result.transaction_id}`,
+                    text: `Successfully force closed channel ${closeChannelContent.id}. Transaction ID: ${result.transaction_id}`,
                     content: { 
                         success: true,
                         transaction: {
@@ -147,7 +120,6 @@ export const closeChannelAction = {
             }
             return true;
         } catch (error) {
-            // 更全面的错误日志记录
             elizaLogger.error("Error in closeChannel handler:", {
                 error: typeof error === 'object' ? error : { message: String(error) },
                 errorString: String(error),

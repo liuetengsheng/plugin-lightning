@@ -103,16 +103,7 @@ export type PayArgs = {
 };
 
 export type GetChannelsArgs = {
-    /** Limit Results To Only Active Channels */
-    is_active?: boolean;
-    /** Limit Results To Only Offline Channels */
-    is_offline?: boolean;
-    /** Limit Results To Only Private Channels */
-    is_private?: boolean;
-    /** Limit Results To Only Public Channels */
-    is_public?: boolean;
-    /** Only Channels With Public Key */
-    partner_public_key?: string;
+   // 空对象，不需要任何参数
 };
 
 export type ChannelPendingPayment = {
@@ -173,28 +164,8 @@ export type Channel = {
 };
 
 export type CloseChannelArgs = {
-    /** Request Sending Local Channel Funds To Address */
-    address?: string;
     /** Standard Format Channel Id */
-    id?: string;
-    /** Is Force Close */
-    is_force_close?: boolean;
-    /** Is Waiting For Pending Payments to Coop Close */
-    is_graceful_close?: boolean;
-    /** Fail Cooperative Close Above Fee Rate */
-    max_tokens_per_vbyte?: number;
-    /** Peer Public Key */
-    public_key?: string;
-    /** Peer Socket */
-    socket?: string;
-    /** Confirmation Target */
-    target_confirmations?: number;
-    /** Target Tokens Per Virtual Byte */
-    tokens_per_vbyte?: number;
-    /** Transaction Id Hex */
-    transaction_id?: string;
-    /** Transaction Output Index */
-    transaction_vout?: number;
+    id: string;
 };
 
 export type CloseChannelResult = {
@@ -210,42 +181,12 @@ export type OpenChannelInput = {
 };
 
 export type OpenChannelArgs = {
-    /** Routing Base Fee Millitokens Charged */
-    base_fee_mtokens?: string;
-    /** Chain Fee Tokens Per VByte */
-    chain_fee_tokens_per_vbyte?: number;
-    /** Restrict Cooperative Close To Address */
-    cooperative_close_address?: string;
-    /** Immutable Channel Description */
-    description?: string;
-    /** Routing Fee Rate In Millitokens Per Million */
-    fee_rate?: number;
-    /** Tokens to Gift To Partner */
-    give_tokens?: number;
-    /** Fund With Specific Inputs */
-    inputs?: OpenChannelInput[];
-    /** Allow Peer to Have Minimal Reserve */
-    is_allowing_minimal_reserve?: boolean;
-    /** Use Maximal Chain Funds For Local Funding */
-    is_max_funding?: boolean;
-    /** Channel is Private */
-    is_private?: boolean;
-    /** Channel is Simplified Taproot Type */
-    is_simplified_taproot?: boolean;
-    /** Accept Funding as Trusted */
-    is_trusted_funding?: boolean;
     /** Total Channel Capacity Tokens */
     local_tokens: number;
-    /** Spend UTXOs With Minimum Confirmations */
-    min_confirmations?: number;
-    /** Minimum HTLC Millitokens */
-    min_htlc_mtokens?: string;
-    /** Peer Output CSV Delay */
-    partner_csv_delay?: number;
     /** Public Key Hex */
     partner_public_key: string;
     /** Peer Connection Host:Port */
-    partner_socket?: string;
+    partner_socket: string;
 };
 
 export type OpenChannelResult = {

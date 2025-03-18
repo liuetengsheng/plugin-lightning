@@ -23,12 +23,9 @@ export class OpenChannelAction {
 
     async openChannel(params: OpenChannelArgs): Promise<OpenChannelResult> {
         try {
-            if (!params.local_tokens || !params.partner_public_key) {
-                elizaLogger.error("Validation failed: Missing required parameters", {
-                    hasLocalTokens: !!params.local_tokens,
-                    hasPartnerPublicKey: !!params.partner_public_key
-                });
-                throw new Error("local_tokens and partner_public_key are required");
+            if (!params.local_tokens) {
+                elizaLogger.error("Validation failed: Missing required parameter local_tokens");
+                throw new Error("local_tokens is required");
             }
 
             const result = await this.lightningProvider.openChannel(params);
@@ -41,8 +38,10 @@ export class OpenChannelAction {
             return result;
         } catch (error) {
             elizaLogger.error("Error in openChannel:", {
-                error: error.message,
-                stack: error.stack,
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack,
                 params
             });
             throw error;
@@ -50,25 +49,9 @@ export class OpenChannelAction {
     }
 }
 
-// 定义 schema 类型
+// 简化schema，只需要local_tokens
 const openChannelSchema = z.object({
-    local_tokens: z.number(),
-    partner_public_key: z.string(),
-    base_fee_mtokens: z.string().optional(),
-    chain_fee_tokens_per_vbyte: z.number().optional(),
-    cooperative_close_address: z.string().optional(),
-    description: z.string().optional(),
-    fee_rate: z.number().optional(),
-    give_tokens: z.number().optional(),
-    is_allowing_minimal_reserve: z.boolean().optional(),
-    is_max_funding: z.boolean().optional(),
-    is_private: z.boolean().optional(),
-    is_simplified_taproot: z.boolean().optional(),
-    is_trusted_funding: z.boolean().optional(),
-    min_confirmations: z.number().optional(),
-    min_htlc_mtokens: z.string().optional(),
-    partner_csv_delay: z.number().optional(),
-    partner_socket: z.string().optional(),
+    local_tokens: z.number()
 });
 
 type OpenChannelContent = z.infer<typeof openChannelSchema>;
@@ -86,26 +69,27 @@ export const openChannelAction = {
             content?: { success: boolean; transaction?: { id: string; vout: number } };
         }) => void
     ) => {
-        // elizaLogger.info("openChannel action handler called with params:", {
-        //     message: _message,
-        //     state,
-        //     options: _options,
-        //     hasCallback: !!callback
-        // });
-        
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.info("LightningProvider initialized successfully");
-            
             const action = new OpenChannelAction(lightningProvider);
-            elizaLogger.info("OpenChannelAction created");
 
-            // Compose bridge context
+            // 从环境变量获取partner_public_key和partner_socket
+            const partner_public_key = runtime.getSetting("PARTNER_PUBLIC_KEY");
+            const partner_socket = runtime.getSetting("PARTNER_SOCKET");
+            
+            if (!partner_public_key) {
+                throw new Error("Missing required environment variable: PARTNER_PUBLIC_KEY");
+            }
+            
+            if (!partner_socket) {
+                throw new Error("Missing required environment variable: PARTNER_SOCKET");
+            }
+
+            // 简化的桥接上下文
             const openChannelContext = composeContext({
                 state,
                 template: openChannelTemplate,
             });
-            elizaLogger.info("Bridge context composed:", { context: openChannelContext });
             
             const content = await generateObject({
                 runtime,
@@ -113,44 +97,43 @@ export const openChannelAction = {
                 schema: openChannelSchema as z.ZodType,
                 modelClass: ModelClass.LARGE,
             });
-            elizaLogger.info("Generated content:", { content });
 
             const openChannelContent = content.object as OpenChannelContent;
-            elizaLogger.info("Parsed content:", openChannelContent);
 
             // 验证必要参数
-            if (!openChannelContent.local_tokens || !openChannelContent.partner_public_key) {
-                elizaLogger.error("Validation failed: Missing required parameters", {
-                    hasLocalTokens: !!openChannelContent.local_tokens,
-                    hasPartnerPublicKey: !!openChannelContent.partner_public_key
-                });
+            if (!openChannelContent.local_tokens) {
+                elizaLogger.error("Validation failed: Missing required parameter local_tokens");
                 if (callback) {
-                    const errorResponse = {
-                        text: "Error: local_tokens and partner_public_key are required",
-                    };
-                    elizaLogger.info("Error callback response:", errorResponse);
-                    callback(errorResponse);
+                    callback({
+                        text: "Error: local_tokens is required"
+                    });
                 }
                 return false;
             }
 
-            const result = await action.openChannel(openChannelContent);
+            // 构建完整的channel参数
+            const channelParams: OpenChannelArgs = {
+                local_tokens: openChannelContent.local_tokens,
+                partner_public_key: partner_public_key,
+                partner_socket: partner_socket
+            };
+
+            elizaLogger.info("Opening channel with params:", {
+                local_tokens: channelParams.local_tokens,
+                partner_public_key: channelParams.partner_public_key,
+                partner_socket: channelParams.partner_socket
+            });
+
+            const result = await action.openChannel(channelParams);
             elizaLogger.info("Channel opened successfully:", {
                 transaction_id: result.transaction_id,
                 transaction_vout: result.transaction_vout,
-                local_tokens: openChannelContent.local_tokens,
-                partner_public_key: openChannelContent.partner_public_key,
-                is_private: openChannelContent.is_private,
-                description: openChannelContent.description
+                local_tokens: openChannelContent.local_tokens
             });
             
             if (callback) {
-                const addressInfo = openChannelContent.cooperative_close_address 
-                    ? `\nCooperative close address: ${openChannelContent.cooperative_close_address}`
-                    : "\nUsing automatically fetched cooperative close address";
-                
                 const response = {
-                    text: `Successfully opened channel with capacity ${openChannelContent.local_tokens} sats to ${openChannelContent.partner_public_key}.${addressInfo}\nTransaction ID: ${result.transaction_id}, Vout: ${result.transaction_vout}`,
+                    text: `Successfully opened channel with capacity ${openChannelContent.local_tokens} sats to ${partner_public_key}.\nTransaction ID: ${result.transaction_id}, Vout: ${result.transaction_vout}`,
                     content: { 
                         success: true,
                         transaction: {
@@ -164,7 +147,6 @@ export const openChannelAction = {
             }
             return true;
         } catch (error) {
-            // 更全面的错误日志记录
             elizaLogger.error("Error in openChannel handler:", {
                 error: typeof error === 'object' ? error : { message: String(error) },
                 errorString: String(error),
@@ -184,17 +166,25 @@ export const openChannelAction = {
     },
     template: openChannelTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.info("Validating openChannel action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
-        const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.info("Validation result:", { 
-            isValid,
-            hasCert: !!cert,
-            hasMacaroon: !!macaroon,
-            hasSocket: !!socket
-        });
+        const partner_public_key = runtime.getSetting("PARTNER_PUBLIC_KEY");
+        const partner_socket = runtime.getSetting("PARTNER_SOCKET");
+        
+        const isValid = !!cert && !!macaroon && !!socket && !!partner_public_key && !!partner_socket;
+        
+        if (!isValid) {
+            const missing = [];
+            if (!cert) missing.push("LND_TLS_CERT");
+            if (!macaroon) missing.push("LND_MACAROON");
+            if (!socket) missing.push("LND_SOCKET");
+            if (!partner_public_key) missing.push("PARTNER_PUBLIC_KEY");
+            if (!partner_socket) missing.push("PARTNER_SOCKET");
+            
+            elizaLogger.error("Missing required environment variables:", { missing });
+        }
+        
         return isValid;
     },
     examples: [
@@ -202,7 +192,7 @@ export const openChannelAction = {
             {
                 user: "user",
                 content: {
-                    text: "Open a channel with 1000000 sats to 03xxxxxx",
+                    text: "Open a channel with 1000000 sats",
                     action: "OPEN_CHANNEL",
                 },
             },

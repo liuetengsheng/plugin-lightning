@@ -10,7 +10,7 @@ import {
     initLightningProvider,
     type LightningProvider,
 } from "../providers/lightning";
-import type { GetChannelsArgs, Channel } from "../types";
+import type { Channel } from "../types";
 import { getChannelsTemplate } from "../templates";
 import { z } from "zod";
 
@@ -21,68 +21,31 @@ export class GetChannelsAction {
         this.lightningProvider = lightningProvider;
     }
 
-    async getChannels(params: GetChannelsArgs = {}): Promise<{ channels: Channel[] }> {
+    async getChannels(): Promise<{ channels: Channel[] }> {
         try {
+            // 直接获取所有通道，不做任何过滤
             const { channels } = await this.lightningProvider.getLndChannel();
             
-            // 应用过滤条件
-            let filteredChannels = channels;
-            
-            if (params.is_active !== undefined) {
-                filteredChannels = filteredChannels.filter(
-                    channel => channel.is_active === params.is_active
-                );
-            }
-            
-            if (params.is_offline !== undefined) {
-                filteredChannels = filteredChannels.filter(
-                    channel => !channel.is_active === params.is_offline
-                );
-            }
-            
-            if (params.is_private !== undefined) {
-                filteredChannels = filteredChannels.filter(
-                    channel => channel.is_private === params.is_private
-                );
-            }
-            
-            if (params.is_public !== undefined) {
-                filteredChannels = filteredChannels.filter(
-                    channel => !channel.is_private === params.is_public
-                );
-            }
-            
-            if (params.partner_public_key) {
-                filteredChannels = filteredChannels.filter(
-                    channel => channel.partner_public_key === params.partner_public_key
-                );
-            }
-
             elizaLogger.info("Channels retrieved:", {
-                total: filteredChannels.length,
-                active: filteredChannels.filter(c => c.is_active).length
+                total: channels.length,
+                active: channels.filter(c => c.is_active).length
             });
 
-            return { channels: filteredChannels };
+            return { channels };
         } catch (error) {
             elizaLogger.error("Error in getChannels:", {
-                error: error.message,
-                stack: error.stack,
-                params
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack
             });
             throw error;
         }
     }
 }
 
-// 定义 schema 类型
-const getChannelsSchema = z.object({
-    is_active: z.boolean().optional(),
-    is_offline: z.boolean().optional(),
-    is_private: z.boolean().optional(),
-    is_public: z.boolean().optional(),
-    partner_public_key: z.string().optional(),
-});
+// 简化schema，不需要任何参数
+const getChannelsSchema = z.object({});
 
 type GetChannelsContent = z.infer<typeof getChannelsSchema>;
 
@@ -99,39 +62,12 @@ export const getChannelsAction = {
             content?: { success: boolean; channels?: Channel[] };
         }) => void
     ) => {
-        // elizaLogger.info("getChannels action handler called with params:", {
-        //     message: _message,
-        //     state,
-        //     options: _options,
-        //     hasCallback: !!callback
-        // });
-        
         try {
             const lightningProvider = await initLightningProvider(runtime);
-            elizaLogger.info("LightningProvider initialized successfully");
-            
             const action = new GetChannelsAction(lightningProvider);
-            elizaLogger.info("GetChannelsAction created");
 
-            // Compose bridge context
-            const getChannelsContext = composeContext({
-                state,
-                template: getChannelsTemplate,
-            });
-            elizaLogger.info("Bridge context composed:", { context: getChannelsContext });
-            
-            const content = await generateObject({
-                runtime,
-                context: getChannelsContext,
-                schema: getChannelsSchema as z.ZodType,
-                modelClass: ModelClass.LARGE,
-            });
-            elizaLogger.info("Generated content:", { content });
-
-            const getChannelsContent = content.object as GetChannelsContent;
-            elizaLogger.info("Parsed content:", getChannelsContent);
-
-            const result = await action.getChannels(getChannelsContent);
+            // 不需要复杂的参数解析，直接获取通道信息
+            const result = await action.getChannels();
             elizaLogger.info("Channels retrieved successfully:", {
                 totalChannels: result.channels.length,
                 activeChannels: result.channels.filter(c => c.is_active).length,
@@ -174,17 +110,13 @@ export const getChannelsAction = {
     },
     template: getChannelsTemplate,
     validate: async (runtime: IAgentRuntime) => {
-        elizaLogger.info("Validating getChannels action");
         const cert = runtime.getSetting("LND_TLS_CERT");
         const macaroon = runtime.getSetting("LND_MACAROON");
         const socket = runtime.getSetting("LND_SOCKET");
         const isValid = !!cert && !!macaroon && !!socket;
-        elizaLogger.info("Validation result:", { 
-            isValid,
-            hasCert: !!cert,
-            hasMacaroon: !!macaroon,
-            hasSocket: !!socket
-        });
+        if (!isValid) {
+            elizaLogger.error("Missing required LND credentials");
+        }
         return isValid;
     },
     examples: [
@@ -192,7 +124,7 @@ export const getChannelsAction = {
             {
                 user: "user",
                 content: {
-                    text: "Show me all active channels",
+                    text: "Show me all channels",
                     action: "GET_CHANNELS",
                 },
             },
