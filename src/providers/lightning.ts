@@ -112,41 +112,102 @@ export class LightningProvider {
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
         try {
-            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
-                throw new Error("Either channel id or transaction details are required");
-            }
-
-            elizaLogger.info("Closing channel:", {
-                id: args.id || `${args.transaction_id}:${args.transaction_vout}`,
-                type: args.is_force_close ? "force" : "cooperative"
-            });
-
-            const closeArgs = {
-                lnd: this.lndClient,
-                is_force_close: args.is_force_close || false,
-                ...(args.id ? { id: args.id } : {
-                    transaction_id: args.transaction_id!,
-                    transaction_vout: args.transaction_vout!
-                }),
-                // 根据需要选择性添加参数
-                ...(args.is_force_close ? {} : {
-                    address: args.address,
-                    public_key: args.public_key,
-                    socket: args.socket,
-                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
-                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
-                })
+          if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+            throw new Error("Either channel id or transaction details (id and vout) are required");
+          }
+      
+          const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
+          elizaLogger.info("开始关闭通道:", {
+            channelId,
+            forceClose: args.is_force_close,
+            publicKey: args.public_key,
+            socket: args.socket
+          });
+      
+          // 构造基础参数
+          const baseArgs = {
+            lnd: this.lndClient,
+            ...(args.id ? { id: args.id } : {}),
+            ...(args.transaction_id && args.transaction_vout ? {
+              transaction_id: args.transaction_id,
+              transaction_vout: args.transaction_vout
+            } : {})
+          };
+      
+          if (args.is_force_close) {
+            // 强制关闭时：仅传 force close 所需参数，移除协作关闭专用的 address、public_key、socket 等字段
+            const forceCloseArgs = {
+              ...baseArgs,
+              is_force_close: true,
+              ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
+              ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
+              ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
             };
-
-            const result = await closeChannel(closeArgs);
-            elizaLogger.info("Channel closed:", { transaction_id: result.transaction_id });
-            return result;
+            // 清除所有 undefined 的属性
+            Object.keys(forceCloseArgs).forEach(key => {
+              if (forceCloseArgs[key] === undefined) delete forceCloseArgs[key];
+            });
+            
+            elizaLogger.debug("执行强制关闭通道:", { 
+              channelId,
+              params: JSON.stringify(forceCloseArgs)
+            });
+            
+            const result = await closeChannel(forceCloseArgs as any);
+            
+            elizaLogger.info("强制关闭通道成功:", { 
+              channelId,
+              transactionId: result.transaction_id,
+              transactionVout: result.transaction_vout 
+            });
+            
+            return result as CloseChannelResult;
+          } else {
+            // 协作关闭时：传入协作关闭所需的参数，包括 address、public_key、socket 等
+            const coopCloseArgs = {
+              ...baseArgs,
+              is_force_close: false,
+              ...(args.is_graceful_close ? { is_graceful_close: true } : {}),
+              ...(args.address ? { address: args.address } : {}),
+              ...(args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {}),
+              ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
+              ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
+              ...(args.public_key ? { public_key: args.public_key } : {}),
+              ...(args.socket ? { socket: args.socket } : {})
+            };
+            // 清除所有 undefined 的属性
+            Object.keys(coopCloseArgs).forEach(key => {
+              if (coopCloseArgs[key] === undefined) delete coopCloseArgs[key];
+            });
+            
+            elizaLogger.debug("执行协作关闭通道:", { 
+              channelId,
+              params: JSON.stringify(coopCloseArgs)
+            });
+            
+            const result = await closeChannel(coopCloseArgs as any);
+            
+            elizaLogger.info("协作关闭通道成功:", { 
+              channelId,
+              transactionId: result.transaction_id,
+              transactionVout: result.transaction_vout,
+              address: args.address
+            });
+            
+            return result as CloseChannelResult;
+          }
         } catch (error) {
-            elizaLogger.error("Close channel failed:", error);
-            throw error;
+          const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
+          elizaLogger.error("关闭通道失败:", { 
+            channelId, 
+            forceClose: args.is_force_close,
+            error: error.message,
+            stack: error.stack
+          });
+          throw new Error(`Failed to close channel: ${error.message}`);
         }
-    }
-
+      }
+      
     async getChainAddresses(): Promise<GetChainAddressesResult> {
         try {
             const result = await getChainAddresses({

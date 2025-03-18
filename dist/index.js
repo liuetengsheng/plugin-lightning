@@ -15,12 +15,18 @@ import {
   getIdentity,
   getChannels,
   createInvoice,
-  pay
+  pay,
+  closeChannel,
+  openChannel,
+  getChainAddresses,
+  createChainAddress,
+  getChainBalance
 } from "astra-lightning";
 var LightningProvider = class {
   lndClient;
   constructor(cert, macaroon, socket) {
     if (!cert || !macaroon || !socket) {
+      elizaLogger.error("Missing required LND credentials");
       throw new Error("Missing required LND credentials");
     }
     try {
@@ -30,42 +36,217 @@ var LightningProvider = class {
         socket
       });
       this.lndClient = lnd;
+      elizaLogger.info("LND client initialized");
     } catch (error) {
-      throw new Error(
-        `Failed to initialize LND client: ${error.message}`
-      );
+      elizaLogger.error("LND client initialization failed:", error);
+      throw error;
     }
   }
   async getLndIdentity() {
     try {
-      return await getIdentity({ lnd: this.lndClient });
+      const result = await getIdentity({ lnd: this.lndClient });
+      elizaLogger.info("Node identity:", { public_key: result.public_key });
+      return result;
     } catch (error) {
-      throw new Error(`Failed to get LND identity: ${error.message}`);
+      elizaLogger.error("Get identity failed:", error);
+      throw error;
     }
   }
-  async getLndChannel() {
+  async getLndChannel(args = {}) {
     try {
-      return await getChannels({ lnd: this.lndClient });
+      const result = await getChannels({
+        lnd: this.lndClient,
+        ...args
+      });
+      elizaLogger.info("Channels status:", {
+        total: result.channels.length,
+        active: result.channels.filter((c) => c.is_active).length
+      });
+      return result;
     } catch (error) {
-      throw new Error(`Failed to get LND channels: ${error.message}`);
+      elizaLogger.error("Get channels failed:", error);
+      throw error;
     }
   }
   async createInvoice(createInvoiceArgs) {
     try {
-      return await createInvoice({
+      const result = await createInvoice({
         lnd: this.lndClient,
         ...createInvoiceArgs
       });
+      elizaLogger.info("Invoice created:", { tokens: result.tokens });
+      return result;
     } catch (error) {
-      throw new Error(`Failed to create invoice: ${error.message}`);
+      elizaLogger.error("Create invoice failed:", error);
+      throw error;
     }
   }
   async payInvoice(payInvoiceArgs) {
-    const ret = await pay({
-      lnd: this.lndClient,
-      ...payInvoiceArgs
-    });
-    return ret;
+    try {
+      const result = await pay({
+        lnd: this.lndClient,
+        ...payInvoiceArgs
+      });
+      elizaLogger.info("Payment completed:", {
+        tokens: result.tokens,
+        fee: result.fee
+      });
+      return result;
+    } catch (error) {
+      elizaLogger.error("Payment failed:", error);
+      throw error;
+    }
+  }
+  async closeChannel(args) {
+    try {
+      if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+        throw new Error("Either channel id or transaction details (id and vout) are required");
+      }
+      const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
+      elizaLogger.info("\u5F00\u59CB\u5173\u95ED\u901A\u9053:", {
+        channelId,
+        forceClose: args.is_force_close,
+        publicKey: args.public_key,
+        socket: args.socket
+      });
+      const baseArgs = {
+        lnd: this.lndClient,
+        ...args.id ? { id: args.id } : {},
+        ...args.transaction_id && args.transaction_vout ? {
+          transaction_id: args.transaction_id,
+          transaction_vout: args.transaction_vout
+        } : {}
+      };
+      if (args.is_force_close) {
+        const forceCloseArgs = {
+          ...baseArgs,
+          is_force_close: true,
+          ...args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {},
+          ...args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {},
+          ...args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}
+        };
+        Object.keys(forceCloseArgs).forEach((key) => {
+          if (forceCloseArgs[key] === void 0) delete forceCloseArgs[key];
+        });
+        elizaLogger.debug("\u6267\u884C\u5F3A\u5236\u5173\u95ED\u901A\u9053:", {
+          channelId,
+          params: JSON.stringify(forceCloseArgs)
+        });
+        const result = await closeChannel(forceCloseArgs);
+        elizaLogger.info("\u5F3A\u5236\u5173\u95ED\u901A\u9053\u6210\u529F:", {
+          channelId,
+          transactionId: result.transaction_id,
+          transactionVout: result.transaction_vout
+        });
+        return result;
+      } else {
+        const coopCloseArgs = {
+          ...baseArgs,
+          is_force_close: false,
+          ...args.is_graceful_close ? { is_graceful_close: true } : {},
+          ...args.address ? { address: args.address } : {},
+          ...args.max_tokens_per_vbyte ? { max_tokens_per_vbyte: args.max_tokens_per_vbyte } : {},
+          ...args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {},
+          ...args.target_confirmations ? { target_confirmations: args.target_confirmations } : {},
+          ...args.public_key ? { public_key: args.public_key } : {},
+          ...args.socket ? { socket: args.socket } : {}
+        };
+        Object.keys(coopCloseArgs).forEach((key) => {
+          if (coopCloseArgs[key] === void 0) delete coopCloseArgs[key];
+        });
+        elizaLogger.debug("\u6267\u884C\u534F\u4F5C\u5173\u95ED\u901A\u9053:", {
+          channelId,
+          params: JSON.stringify(coopCloseArgs)
+        });
+        const result = await closeChannel(coopCloseArgs);
+        elizaLogger.info("\u534F\u4F5C\u5173\u95ED\u901A\u9053\u6210\u529F:", {
+          channelId,
+          transactionId: result.transaction_id,
+          transactionVout: result.transaction_vout,
+          address: args.address
+        });
+        return result;
+      }
+    } catch (error) {
+      const channelId = args.id || `${args.transaction_id}:${args.transaction_vout}`;
+      elizaLogger.error("\u5173\u95ED\u901A\u9053\u5931\u8D25:", {
+        channelId,
+        forceClose: args.is_force_close,
+        error: error.message,
+        stack: error.stack
+      });
+      throw new Error(`Failed to close channel: ${error.message}`);
+    }
+  }
+  async getChainAddresses() {
+    try {
+      const result = await getChainAddresses({
+        lnd: this.lndClient
+      });
+      elizaLogger.info("Chain addresses:", {
+        total: result.addresses.length,
+        change: result.addresses.filter((addr) => addr.is_change).length
+      });
+      return result;
+    } catch (error) {
+      elizaLogger.error("Get chain addresses failed:", error);
+      throw error;
+    }
+  }
+  async openChannel(args) {
+    try {
+      if (!args.local_tokens || !args.partner_public_key) {
+        throw new Error("local_tokens and partner_public_key are required");
+      }
+      if (!args.cooperative_close_address) {
+        const { addresses } = await this.getChainAddresses();
+        const mainAddress = addresses.find((addr) => !addr.is_change);
+        if (mainAddress) {
+          args.cooperative_close_address = mainAddress.address;
+        }
+      }
+      elizaLogger.info("Opening channel:", {
+        tokens: args.local_tokens,
+        partner: args.partner_public_key,
+        is_private: args.is_private
+      });
+      const result = await openChannel({
+        lnd: this.lndClient,
+        ...args
+      });
+      elizaLogger.info("Channel opened:", { transaction_id: result.transaction_id });
+      return result;
+    } catch (error) {
+      elizaLogger.error("Open channel failed:", error);
+      throw error;
+    }
+  }
+  async createChainAddress(args = {}) {
+    try {
+      const format = args.format || "p2wpkh";
+      const result = await createChainAddress({
+        lnd: this.lndClient,
+        format,
+        is_unused: args.is_unused
+      });
+      elizaLogger.info("Chain address created:", { format });
+      return result;
+    } catch (error) {
+      elizaLogger.error("Create chain address failed:", error);
+      throw error;
+    }
+  }
+  async getChainBalance() {
+    try {
+      const result = await getChainBalance({
+        lnd: this.lndClient
+      });
+      elizaLogger.info("Chain balance:", { balance: result.chain_balance });
+      return result;
+    } catch (error) {
+      elizaLogger.error("Get chain balance failed:", error);
+      throw error;
+    }
   }
 };
 var initLightningProvider = async (runtime) => {
@@ -84,7 +265,7 @@ var lndProvider = {
       return `${agentName}'s Lightning Node publickey: ${nodePubkey}
 Channel count: ${channels.length}`;
     } catch (error) {
-      elizaLogger.error("Error in Lightning provider:", error.message);
+      elizaLogger.error("Provider get failed:", error);
       return null;
     }
   }
@@ -163,66 +344,290 @@ First, review the recent messages from the conversation:
 
 Now, process the user's request and provide your response.
 `;
+var getChannelsTemplate = `You are an AI assistant specialized in processing requests to get lightning network channels information. Your task is to extract specific information from user messages and format it into a structured JSON response.
+
+First, review the recent messages from the conversation:
+
+<recent_messages>
+{{recentMessages}}
+</recent_messages>
+
+Your goal is to extract the following optional filter parameters:
+1. is_active (boolean)
+2. is_offline (boolean)
+3. is_private (boolean)
+4. is_public (boolean)
+5. partner_public_key (string)
+
+Respond with a JSON markdown block containing the extracted values:
+
+\`\`\`json
+{
+    "is_active"?: boolean;
+    "is_offline"?: boolean;
+    "is_private"?: boolean;
+    "is_public"?: boolean;
+    "partner_public_key"?: string;
+}
+\`\`\`
+
+Now, process the user's request and provide your response.
+`;
+var closeChannelTemplate = `You are an AI assistant specialized in processing requests to close a lightning network channel. Your task is to extract specific information from user messages and format it into a structured JSON response.
+
+First, review the recent messages from the conversation:
+
+<recent_messages>
+{{recentMessages}}
+</recent_messages>
+
+Your goal is to extract the following information for channel closing:
+1. Channel ID or Transaction Details (required - either channel_id OR transaction_id + transaction_vout)
+2. Closing Options (optional):
+   - address (\u9001\u91D1\u5730\u5740)
+   - is_force_close (\u662F\u5426\u5F3A\u5236\u5173\u95ED)
+   - is_graceful_close (\u662F\u5426\u7B49\u5F85\u5F85\u5904\u7406\u652F\u4ED8\u5B8C\u6210\u540E\u518D\u5173\u95ED)
+   - max_tokens_per_vbyte (\u6700\u5927\u6BCF\u5B57\u8282\u624B\u7EED\u8D39)
+   - tokens_per_vbyte (\u76EE\u6807\u6BCF\u5B57\u8282\u624B\u7EED\u8D39)
+   - target_confirmations (\u76EE\u6807\u786E\u8BA4\u6570)
+   - public_key (\u8282\u70B9\u516C\u94A5)
+   - socket (\u8282\u70B9\u5730\u5740)
+
+Respond with a JSON markdown block containing the extracted values:
+
+\`\`\`json
+{
+    "id"?: string;
+    "transaction_id"?: string;
+    "transaction_vout"?: number;
+    "address"?: string;
+    "is_force_close"?: boolean;
+    "is_graceful_close"?: boolean;
+    "max_tokens_per_vbyte"?: number;
+    "tokens_per_vbyte"?: number;
+    "target_confirmations"?: number;
+    "public_key"?: string;
+    "socket"?: string;
+}
+\`\`\`
+
+Now, process the user's request and provide your response.
+`;
+var openChannelTemplate = `You are an AI assistant specialized in processing requests to open a new lightning network channel. Your task is to extract specific information from user messages and format it into a structured JSON response.
+
+First, review the recent messages from the conversation:
+
+<recent_messages>
+{{recentMessages}}
+</recent_messages>
+
+Your goal is to extract the following information for channel opening:
+1. Required Parameters:
+   - local_tokens (\u901A\u9053\u603B\u5BB9\u91CF)
+   - partner_public_key (\u5BF9\u65B9\u8282\u70B9\u516C\u94A5)
+
+2. Optional Parameters:
+   - base_fee_mtokens (\u8DEF\u7531\u57FA\u7840\u8D39\u7528\uFF0C\u6BEB\u806A)
+   - chain_fee_tokens_per_vbyte (\u94FE\u4E0A\u6BCF\u5B57\u8282\u8D39\u7528)
+   - cooperative_close_address (\u6307\u5B9A\u534F\u4F5C\u5173\u95ED\u5730\u5740\uFF0C\u5982\u679C\u4E0D\u63D0\u4F9B\u5C06\u81EA\u52A8\u83B7\u53D6)
+   - description (\u901A\u9053\u63CF\u8FF0)
+   - fee_rate (\u8DEF\u7531\u8D39\u7387\uFF0C\u767E\u4E07\u5206\u4E4B\u4E00)
+   - give_tokens (\u8D60\u9001\u7ED9\u5BF9\u65B9\u7684\u806A\u6570)
+   - is_allowing_minimal_reserve (\u5141\u8BB8\u6700\u5C0F\u50A8\u5907)
+   - is_max_funding (\u4F7F\u7528\u6700\u5927\u53EF\u7528\u8D44\u91D1)
+   - is_private (\u662F\u5426\u79C1\u6709\u901A\u9053)
+   - is_simplified_taproot (\u662F\u5426\u7B80\u5316 Taproot \u901A\u9053)
+   - is_trusted_funding (\u662F\u5426\u4FE1\u4EFB\u8D44\u91D1)
+   - min_confirmations (UTXO\u6700\u5C0F\u786E\u8BA4\u6570)
+   - min_htlc_mtokens (\u6700\u5C0FHTLC\u6BEB\u806A)
+   - partner_csv_delay (\u5BF9\u65B9CSV\u5EF6\u8FDF)
+   - partner_socket (\u5BF9\u65B9\u8282\u70B9\u5730\u5740)
+
+Respond with a JSON markdown block containing the extracted values:
+
+\`\`\`json
+{
+    "local_tokens": number,
+    "partner_public_key": string,
+    "base_fee_mtokens"?: string,
+    "chain_fee_tokens_per_vbyte"?: number,
+    "cooperative_close_address"?: string,
+    "description"?: string,
+    "fee_rate"?: number,
+    "give_tokens"?: number,
+    "is_allowing_minimal_reserve"?: boolean,
+    "is_max_funding"?: boolean,
+    "is_private"?: boolean,
+    "is_simplified_taproot"?: boolean,
+    "is_trusted_funding"?: boolean,
+    "min_confirmations"?: number,
+    "min_htlc_mtokens"?: string,
+    "partner_csv_delay"?: number,
+    "partner_socket"?: string
+}
+\`\`\`
+
+Now, process the user's request and provide your response.
+`;
+var createChainAddressTemplate = `You are an AI assistant specialized in processing requests to create a new Bitcoin chain address. Your task is to extract specific information from user messages and format it into a structured JSON response.
+
+First, review the recent messages from the conversation:
+
+<recent_messages>
+{{recentMessages}}
+</recent_messages>
+
+Your goal is to extract the following information for address creation:
+1. Required Parameters:
+   - format (\u5730\u5740\u7C7B\u578B\uFF0C\u9ED8\u8BA4\u4E3A "p2wpkh")
+   - is_unused (\u662F\u5426\u83B7\u53D6\u672A\u4F7F\u7528\u7684\u5730\u5740\uFF0C\u53EF\u9009)
+
+Respond with a JSON markdown block containing the extracted values:
+
+\`\`\`json
+{
+    "format"?: "p2wpkh" | "np2wpkh" | "p2tr",
+    "is_unused"?: boolean
+}
+\`\`\`
+
+Now, process the user's request and provide your response.
+`;
+var getChainBalanceTemplate = `You are an AI assistant specialized in processing requests to get Bitcoin chain balance. Your task is to extract specific information from user messages and format it into a structured JSON response.
+
+First, review the recent messages from the conversation:
+
+<recent_messages>
+{{recentMessages}}
+</recent_messages>
+
+Your goal is to extract the following information for balance checking:
+1. Required Parameters:
+   - None (this action will return the total confirmed chain balance)
+
+Respond with a JSON markdown block containing the extracted values:
+
+\`\`\`json
+{
+    // \u8FD9\u4E2A\u52A8\u4F5C\u4E0D\u9700\u8981\u4EFB\u4F55\u53C2\u6570
+}
+\`\`\`
+
+Now, process the user's request and provide your response.
+`;
 
 // src/actions/createInvoice.ts
 var CreateInvoiceAction = class {
   constructor(lightningProvider) {
     this.lightningProvider = lightningProvider;
     this.lightningProvider = lightningProvider;
+    elizaLogger2.info("CreateInvoiceAction initialized");
   }
   async createInvoice(params) {
+    elizaLogger2.info("CreateInvoiceAction.createInvoice called with params:", params);
     if (!params.tokens) {
+      elizaLogger2.error("CreateInvoiceAction.createInvoice validation failed: tokens is required");
       throw new Error("tokens is required.");
     }
-    const retCreateInvoice = await this.lightningProvider.createInvoice(params);
-    return retCreateInvoice;
+    try {
+      const retCreateInvoice = await this.lightningProvider.createInvoice(params);
+      elizaLogger2.info("CreateInvoiceAction.createInvoice result:", {
+        tokens: retCreateInvoice.tokens,
+        request: retCreateInvoice.request,
+        id: retCreateInvoice.id
+      });
+      return retCreateInvoice;
+    } catch (error) {
+      elizaLogger2.error("CreateInvoiceAction.createInvoice error:", {
+        error: error.message,
+        stack: error.stack,
+        params
+      });
+      throw error;
+    }
   }
 };
 var createInvoiceAction = {
   name: "CREATE_INVOICE",
   description: "Create a Lightning invoice.",
   handler: async (runtime, _message, state, _options, callback) => {
-    elizaLogger2.log("CreateInvoice action handler called");
-    const lightningProvider = await initLightningProvider(runtime);
-    const action = new CreateInvoiceAction(lightningProvider);
-    const createInvoiceContext = composeContext({
+    elizaLogger2.info("CreateInvoice action handler called with params:", {
+      message: _message,
       state,
-      template: createInvoiceTemplate
+      options: _options,
+      hasCallback: !!callback
     });
-    const content = await generateObjectDeprecated({
-      runtime,
-      context: createInvoiceContext,
-      modelClass: ModelClass.LARGE
-    });
-    const createInvoiceOptions = {
-      tokens: content.tokens
-    };
     try {
+      const lightningProvider = await initLightningProvider(runtime);
+      elizaLogger2.info("LightningProvider initialized successfully");
+      const action = new CreateInvoiceAction(lightningProvider);
+      elizaLogger2.info("CreateInvoiceAction created");
+      const createInvoiceContext = composeContext({
+        state,
+        template: createInvoiceTemplate
+      });
+      elizaLogger2.info("Bridge context composed:", { context: createInvoiceContext });
+      const content = await generateObjectDeprecated({
+        runtime,
+        context: createInvoiceContext,
+        modelClass: ModelClass.LARGE
+      });
+      elizaLogger2.info("Generated content:", { content });
+      const createInvoiceOptions = {
+        tokens: content.tokens
+      };
+      elizaLogger2.info("Parsed invoice options:", createInvoiceOptions);
       const createInvoiceResp = await action.createInvoice(createInvoiceOptions);
+      elizaLogger2.info("Invoice created successfully:", {
+        tokens: createInvoiceResp.tokens,
+        request: createInvoiceResp.request,
+        id: createInvoiceResp.id
+      });
       if (callback) {
-        callback({
+        const response = {
           text: `Successfully created invoice for ${createInvoiceResp.tokens.toLocaleString()} sats\r
 Invoice: ${createInvoiceResp.request}`,
           content: {
             success: true,
             invoice: createInvoiceResp.request
           }
-        });
+        };
+        elizaLogger2.info("Callback response:", response);
+        callback(response);
       }
       return true;
     } catch (error) {
+      elizaLogger2.error("Error in CreateInvoice handler:", {
+        error: error.message,
+        stack: error.stack,
+        message: _message,
+        state,
+        options: _options
+      });
       if (callback) {
-        callback({ text: `Error: ${error.message}` });
+        const errorResponse = {
+          text: `Error: ${error.message}`
+        };
+        elizaLogger2.info("Error callback response:", errorResponse);
+        callback(errorResponse);
       }
       return false;
     }
   },
   template: createInvoiceTemplate,
   validate: async (runtime) => {
+    elizaLogger2.info("Validating CreateInvoice action");
     const cert = runtime.getSetting("LND_TLS_CERT");
     const macaroon = runtime.getSetting("LND_MACAROON");
     const socket = runtime.getSetting("LND_SOCKET");
-    return !!cert && !!macaroon && !!socket;
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    elizaLogger2.info("Validation result:", {
+      isValid: isValid2,
+      hasCert: !!cert,
+      hasMacaroon: !!macaroon,
+      hasSocket: !!socket
+    });
+    return isValid2;
   },
   examples: [
     [
@@ -246,7 +651,7 @@ import {
   elizaLogger as elizaLogger3
 } from "@elizaos/core";
 
-// ../../node_modules/.pnpm/zod@3.24.1/node_modules/zod/lib/index.mjs
+// ../../node_modules/.pnpm/zod@3.24.2/node_modules/zod/lib/index.mjs
 var util;
 (function(util2) {
   util2.assertEqual = (val) => val;
@@ -4067,16 +4472,32 @@ ZodReadonly.create = (type, params) => {
     ...processCreateParams(params)
   });
 };
-function custom(check, params = {}, fatal) {
+function cleanParams(params, data) {
+  const p = typeof params === "function" ? params(data) : typeof params === "string" ? { message: params } : params;
+  const p2 = typeof p === "string" ? { message: p } : p;
+  return p2;
+}
+function custom(check, _params = {}, fatal) {
   if (check)
     return ZodAny.create().superRefine((data, ctx) => {
       var _a, _b;
-      if (!check(data)) {
-        const p = typeof params === "function" ? params(data) : typeof params === "string" ? { message: params } : params;
-        const _fatal = (_b = (_a = p.fatal) !== null && _a !== void 0 ? _a : fatal) !== null && _b !== void 0 ? _b : true;
-        const p2 = typeof p === "string" ? { message: p } : p;
-        ctx.addIssue({ code: "custom", ...p2, fatal: _fatal });
+      const r = check(data);
+      if (r instanceof Promise) {
+        return r.then((r2) => {
+          var _a2, _b2;
+          if (!r2) {
+            const params = cleanParams(_params, data);
+            const _fatal = (_b2 = (_a2 = params.fatal) !== null && _a2 !== void 0 ? _a2 : fatal) !== null && _b2 !== void 0 ? _b2 : true;
+            ctx.addIssue({ code: "custom", ...params, fatal: _fatal });
+          }
+        });
       }
+      if (!r) {
+        const params = cleanParams(_params, data);
+        const _fatal = (_b = (_a = params.fatal) !== null && _a !== void 0 ? _a : fatal) !== null && _b !== void 0 ? _b : true;
+        ctx.addIssue({ code: "custom", ...params, fatal: _fatal });
+      }
+      return;
     });
   return ZodAny.create();
 }
@@ -4295,36 +4716,86 @@ var PayInvoiceAction = class {
   constructor(lightningProvider) {
     this.lightningProvider = lightningProvider;
     this.lightningProvider = lightningProvider;
+    elizaLogger3.info("PayInvoiceAction initialized");
   }
   async getAvalibleChannelId() {
-    const { channels } = await this.lightningProvider.getLndChannel();
-    const filteredActiveChannels = channels.filter(
-      (channel) => channel.is_active === true
-    );
-    const sortedChannels = filteredActiveChannels.sort(
-      (a, b) => b.local_balance - a.local_balance
-    );
-    if (sortedChannels.length > 0) {
-      return sortedChannels[0].id;
+    var _a;
+    elizaLogger3.info("PayInvoiceAction.getAvalibleChannelId called");
+    try {
+      const { channels } = await this.lightningProvider.getLndChannel();
+      elizaLogger3.info("Retrieved channels:", {
+        totalChannels: channels.length,
+        activeChannels: channels.filter((c) => c.is_active).length
+      });
+      const filteredActiveChannels = channels.filter(
+        (channel) => channel.is_active === true
+      );
+      elizaLogger3.info("Filtered active channels:", {
+        count: filteredActiveChannels.length
+      });
+      const sortedChannels = filteredActiveChannels.sort(
+        (a, b) => b.local_balance - a.local_balance
+      );
+      elizaLogger3.info("Sorted channels by local balance:", {
+        count: sortedChannels.length,
+        topBalance: (_a = sortedChannels[0]) == null ? void 0 : _a.local_balance
+      });
+      if (sortedChannels.length > 0) {
+        const channelId = sortedChannels[0].id;
+        elizaLogger3.info("Selected channel ID:", { channelId });
+        return channelId;
+      }
+      elizaLogger3.warn("No available channels found");
+      return "";
+    } catch (error) {
+      elizaLogger3.error("Error in getAvalibleChannelId:", {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
     }
-    return "";
   }
   async payInvoice(params) {
-    const outgoing_channel = await this.getAvalibleChannelId();
-    if (!outgoing_channel) {
-      throw new Error("no avalible channel");
+    elizaLogger3.info("PayInvoiceAction.payInvoice called with params:", {
+      request: params.request,
+      outgoing_channel: params.outgoing_channel
+    });
+    try {
+      const outgoing_channel = await this.getAvalibleChannelId();
+      if (!outgoing_channel) {
+        elizaLogger3.error("No available channel found for payment");
+        throw new Error("no avalible channel");
+      }
+      elizaLogger3.info("Selected outgoing channel:", { outgoing_channel });
+      const requestArgs = {
+        outgoing_channel,
+        ...params
+      };
+      elizaLogger3.info("Constructed payment request args:", {
+        outgoing_channel: requestArgs.outgoing_channel,
+        request: requestArgs.request
+      });
+      const retPayInvoice = await this.lightningProvider.payInvoice(
+        requestArgs
+      );
+      elizaLogger3.info("Payment result:", {
+        id: retPayInvoice.id,
+        is_confirmed: retPayInvoice.is_confirmed,
+        tokens: retPayInvoice.tokens,
+        fee: retPayInvoice.fee
+      });
+      return {
+        ...retPayInvoice,
+        outgoing_channel
+      };
+    } catch (error) {
+      elizaLogger3.error("Error in payInvoice:", {
+        error: error.message,
+        stack: error.stack,
+        params
+      });
+      throw error;
     }
-    const requestArgs = {
-      outgoing_channel,
-      ...params
-    };
-    const retPayInvoice = await this.lightningProvider.payInvoice(
-      requestArgs
-    );
-    return {
-      ...retPayInvoice,
-      outgoing_channel
-    };
   }
 };
 var payInvoiceSchema = z.object({
@@ -4334,62 +4805,98 @@ var payInvoiceAction = {
   name: "PAY_INVOICE",
   description: "Make a payment.",
   handler: async (runtime, _message, state, _options, callback) => {
-    elizaLogger3.log("payInvoice action handler called");
-    const lightningProvider = await initLightningProvider(runtime);
-    const action = new PayInvoiceAction(lightningProvider);
-    const payInvoiceContext = composeContext2({
+    elizaLogger3.info("payInvoice action handler called with params:", {
+      message: _message,
       state,
-      template: payInvoiceTemplate
+      options: _options,
+      hasCallback: !!callback
     });
-    const content = await generateObject({
-      runtime,
-      context: payInvoiceContext,
-      schema: payInvoiceSchema,
-      modelClass: ModelClass2.LARGE
-    });
-    const payInvoiceContent = content.object;
-    const payInvoiceOptions = {
-      request: payInvoiceContent.request
-    };
     try {
+      const lightningProvider = await initLightningProvider(runtime);
+      elizaLogger3.info("LightningProvider initialized successfully");
+      const action = new PayInvoiceAction(lightningProvider);
+      elizaLogger3.info("PayInvoiceAction created");
+      const payInvoiceContext = composeContext2({
+        state,
+        template: payInvoiceTemplate
+      });
+      elizaLogger3.info("Bridge context composed:", { context: payInvoiceContext });
+      const content = await generateObject({
+        runtime,
+        context: payInvoiceContext,
+        schema: payInvoiceSchema,
+        modelClass: ModelClass2.LARGE
+      });
+      elizaLogger3.info("Generated content:", { content });
+      const payInvoiceContent = content.object;
+      elizaLogger3.info("Parsed content:", payInvoiceContent);
+      const payInvoiceOptions = {
+        request: payInvoiceContent.request
+      };
+      elizaLogger3.info("Constructed payment options:", payInvoiceOptions);
       const payInvoiceResp = await action.payInvoice(payInvoiceOptions);
-      elizaLogger3.log("\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD ~ payInvoiceResp:", payInvoiceResp);
+      elizaLogger3.info("Payment completed:", {
+        is_confirmed: payInvoiceResp.is_confirmed,
+        tokens: payInvoiceResp.tokens,
+        fee: payInvoiceResp.fee,
+        outgoing_channel: payInvoiceResp.outgoing_channel
+      });
       if (callback) {
         if (payInvoiceResp.is_confirmed) {
-          callback({
+          const response = {
             text: `Successfully paid invoice ${payInvoiceContent.request} from ${payInvoiceResp.outgoing_channel};
 Amount: ${payInvoiceResp.tokens};
 Fee: ${payInvoiceResp.fee};
 Payment Hash: ${payInvoiceResp.id};`,
             content: { success: true }
-          });
+          };
+          elizaLogger3.info("Success callback response:", response);
+          callback(response);
         } else {
-          callback({
+          const response = {
             text: `Failed to payInvoice ${payInvoiceContent.request} from ${payInvoiceContent.outgoing_channel};\r
  Amount: ${payInvoiceResp.tokens};`,
             content: {
               success: false
             }
-          });
+          };
+          elizaLogger3.info("Failure callback response:", response);
+          callback(response);
         }
       }
       return true;
     } catch (error) {
-      elizaLogger3.error("Error in payInvoice handler:", error);
+      elizaLogger3.error("Error in payInvoice handler:", {
+        error: error.message,
+        stack: error.stack,
+        message: _message,
+        state,
+        options: _options
+      });
       if (callback) {
-        callback({
+        const errorResponse = {
           text: `Error: ${error.message || "An error occurred"}`
-        });
+        };
+        elizaLogger3.info("Error callback response:", errorResponse);
+        callback(errorResponse);
       }
       return false;
     }
   },
   template: payInvoiceTemplate,
   validate: async (runtime) => {
+    elizaLogger3.info("Validating payInvoice action");
     const cert = runtime.getSetting("LND_TLS_CERT");
     const macaroon = runtime.getSetting("LND_MACAROON");
     const socket = runtime.getSetting("LND_SOCKET");
-    return !!cert && !!macaroon && !!socket;
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    elizaLogger3.info("Validation result:", {
+      isValid: isValid2,
+      hasCert: !!cert,
+      hasMacaroon: !!macaroon,
+      hasSocket: !!socket
+    });
+    return isValid2;
   },
   examples: [
     [
@@ -4405,11 +4912,726 @@ Payment Hash: ${payInvoiceResp.id};`,
   similes: ["PAY_INVOICE", "MAKE_PAYMENT"]
 };
 
+// src/actions/getChannels.ts
+import {
+  composeContext as composeContext3,
+  generateObject as generateObject2,
+  ModelClass as ModelClass3,
+  elizaLogger as elizaLogger4
+} from "@elizaos/core";
+var GetChannelsAction = class {
+  constructor(lightningProvider) {
+    this.lightningProvider = lightningProvider;
+    this.lightningProvider = lightningProvider;
+    elizaLogger4.info("GetChannelsAction initialized");
+  }
+  async getChannels(params = {}) {
+    elizaLogger4.info("GetChannelsAction.getChannels called with params:", params);
+    try {
+      const { channels } = await this.lightningProvider.getLndChannel();
+      elizaLogger4.info("Retrieved channels from provider:", {
+        totalChannels: channels.length,
+        activeChannels: channels.filter((c) => c.is_active).length,
+        privateChannels: channels.filter((c) => c.is_private).length
+      });
+      let filteredChannels = channels;
+      if (params.is_active !== void 0) {
+        filteredChannels = filteredChannels.filter(
+          (channel) => channel.is_active === params.is_active
+        );
+        elizaLogger4.info("Applied is_active filter:", {
+          is_active: params.is_active,
+          remainingChannels: filteredChannels.length
+        });
+      }
+      if (params.is_offline !== void 0) {
+        filteredChannels = filteredChannels.filter(
+          (channel) => !channel.is_active === params.is_offline
+        );
+        elizaLogger4.info("Applied is_offline filter:", {
+          is_offline: params.is_offline,
+          remainingChannels: filteredChannels.length
+        });
+      }
+      if (params.is_private !== void 0) {
+        filteredChannels = filteredChannels.filter(
+          (channel) => channel.is_private === params.is_private
+        );
+        elizaLogger4.info("Applied is_private filter:", {
+          is_private: params.is_private,
+          remainingChannels: filteredChannels.length
+        });
+      }
+      if (params.is_public !== void 0) {
+        filteredChannels = filteredChannels.filter(
+          (channel) => !channel.is_private === params.is_public
+        );
+        elizaLogger4.info("Applied is_public filter:", {
+          is_public: params.is_public,
+          remainingChannels: filteredChannels.length
+        });
+      }
+      if (params.partner_public_key) {
+        filteredChannels = filteredChannels.filter(
+          (channel) => channel.partner_public_key === params.partner_public_key
+        );
+        elizaLogger4.info("Applied partner_public_key filter:", {
+          partner_public_key: params.partner_public_key,
+          remainingChannels: filteredChannels.length
+        });
+      }
+      elizaLogger4.info("Final filtered channels:", {
+        totalChannels: filteredChannels.length,
+        activeChannels: filteredChannels.filter((c) => c.is_active).length,
+        privateChannels: filteredChannels.filter((c) => c.is_private).length
+      });
+      return { channels: filteredChannels };
+    } catch (error) {
+      elizaLogger4.error("Error in getChannels:", {
+        error: error.message,
+        stack: error.stack,
+        params
+      });
+      throw error;
+    }
+  }
+};
+var getChannelsSchema = z.object({
+  is_active: z.boolean().optional(),
+  is_offline: z.boolean().optional(),
+  is_private: z.boolean().optional(),
+  is_public: z.boolean().optional(),
+  partner_public_key: z.string().optional()
+});
+var getChannelsAction = {
+  name: "GET_CHANNELS",
+  description: "Get lightning network channels information.",
+  handler: async (runtime, _message, state, _options, callback) => {
+    elizaLogger4.info("getChannels action handler called with params:", {
+      message: _message,
+      state,
+      options: _options,
+      hasCallback: !!callback
+    });
+    try {
+      const lightningProvider = await initLightningProvider(runtime);
+      elizaLogger4.info("LightningProvider initialized successfully");
+      const action = new GetChannelsAction(lightningProvider);
+      elizaLogger4.info("GetChannelsAction created");
+      const getChannelsContext = composeContext3({
+        state,
+        template: getChannelsTemplate
+      });
+      elizaLogger4.info("Bridge context composed:", { context: getChannelsContext });
+      const content = await generateObject2({
+        runtime,
+        context: getChannelsContext,
+        schema: getChannelsSchema,
+        modelClass: ModelClass3.LARGE
+      });
+      elizaLogger4.info("Generated content:", { content });
+      const getChannelsContent = content.object;
+      elizaLogger4.info("Parsed content:", getChannelsContent);
+      const result = await action.getChannels(getChannelsContent);
+      elizaLogger4.info("Channels retrieved successfully:", {
+        totalChannels: result.channels.length,
+        activeChannels: result.channels.filter((c) => c.is_active).length,
+        privateChannels: result.channels.filter((c) => c.is_private).length
+      });
+      if (callback) {
+        const channelSummary = result.channels.map(
+          (channel) => `Channel ${channel.id}: ${channel.local_balance} sats local, ${channel.remote_balance} sats remote${channel.is_active ? " (active)" : " (inactive)"}`
+        ).join("\n");
+        const response = {
+          text: `Found ${result.channels.length} channels:
+${channelSummary}`,
+          content: {
+            success: true,
+            channels: result.channels
+          }
+        };
+        elizaLogger4.info("Callback response:", response);
+        callback(response);
+      }
+      return true;
+    } catch (error) {
+      elizaLogger4.error("Error in getChannels handler:", {
+        error: error.message,
+        stack: error.stack,
+        message: _message,
+        state,
+        options: _options
+      });
+      if (callback) {
+        const errorResponse = {
+          text: `Error: ${error.message || "An error occurred"}`
+        };
+        elizaLogger4.info("Error callback response:", errorResponse);
+        callback(errorResponse);
+      }
+      return false;
+    }
+  },
+  template: getChannelsTemplate,
+  validate: async (runtime) => {
+    elizaLogger4.info("Validating getChannels action");
+    const cert = runtime.getSetting("LND_TLS_CERT");
+    const macaroon = runtime.getSetting("LND_MACAROON");
+    const socket = runtime.getSetting("LND_SOCKET");
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    elizaLogger4.info("Validation result:", {
+      isValid: isValid2,
+      hasCert: !!cert,
+      hasMacaroon: !!macaroon,
+      hasSocket: !!socket
+    });
+    return isValid2;
+  },
+  examples: [
+    [
+      {
+        user: "user",
+        content: {
+          text: "Show me all active channels",
+          action: "GET_CHANNELS"
+        }
+      }
+    ]
+  ],
+  similes: ["GET_CHANNELS", "LIST_CHANNELS", "SHOW_CHANNELS"]
+};
+
+// src/actions/closeChannel.ts
+import {
+  composeContext as composeContext4,
+  generateObject as generateObject3,
+  ModelClass as ModelClass4,
+  elizaLogger as elizaLogger5
+} from "@elizaos/core";
+var CloseChannelAction = class {
+  constructor(lightningProvider) {
+    this.lightningProvider = lightningProvider;
+    this.lightningProvider = lightningProvider;
+  }
+  async closeChannel(args) {
+    try {
+      if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+        throw new Error("Either channel id or transaction details are required");
+      }
+      if (!args.is_force_close && (!args.public_key || !args.socket)) {
+        throw new Error("Cooperative close requires public_key and socket");
+      }
+      elizaLogger5.info("Closing channel:", {
+        id: args.id || `${args.transaction_id}:${args.transaction_vout}`,
+        type: args.is_force_close ? "force" : "cooperative"
+      });
+      const result = await this.lightningProvider.closeChannel({
+        ...args,
+        is_force_close: args.is_force_close || false
+      });
+      elizaLogger5.info("Channel closed:", {
+        transaction_id: result.transaction_id
+      });
+      return result;
+    } catch (error) {
+      elizaLogger5.error("Close channel failed:", error);
+      throw error;
+    }
+  }
+};
+var closeChannelSchema = z.object({
+  id: z.string().optional(),
+  transaction_id: z.string().optional(),
+  transaction_vout: z.number().optional(),
+  is_force_close: z.boolean().optional().default(false),
+  // 协作关闭的参数
+  public_key: z.string().optional(),
+  socket: z.string().optional(),
+  // 可选参数
+  address: z.string().optional(),
+  target_confirmations: z.number().optional(),
+  tokens_per_vbyte: z.number().optional(),
+  is_graceful_close: z.boolean().optional(),
+  max_tokens_per_vbyte: z.number().optional()
+}).refine(
+  (data) => !!(data.id || data.transaction_id && data.transaction_vout),
+  "Either channel id or transaction details are required"
+).refine(
+  (data) => data.is_force_close || !!(data.public_key && data.socket),
+  "Cooperative close requires public_key and socket"
+);
+var closeChannelAction = {
+  name: "CLOSE_CHANNEL",
+  description: "Close a lightning network channel.",
+  handler: async (runtime, _message, state, _options, callback) => {
+    try {
+      const lightningProvider = await initLightningProvider(runtime);
+      const action = new CloseChannelAction(lightningProvider);
+      const closeChannelContext = composeContext4({
+        state,
+        template: closeChannelTemplate
+      });
+      const content = await generateObject3({
+        runtime,
+        context: closeChannelContext,
+        schema: closeChannelSchema,
+        modelClass: ModelClass4.LARGE
+      });
+      const closeChannelContent = content.object;
+      if (!closeChannelContent.id && !(closeChannelContent.transaction_id && closeChannelContent.transaction_vout)) {
+        elizaLogger5.error("Missing required parameters for channel close");
+        if (callback) {
+          callback({
+            text: "Error: Either channel id or transaction details are required"
+          });
+        }
+        return false;
+      }
+      const result = await action.closeChannel(closeChannelContent);
+      if (callback) {
+        callback({
+          text: `Successfully closed channel. Transaction ID: ${result.transaction_id}`,
+          content: {
+            success: true,
+            transaction: {
+              id: result.transaction_id,
+              vout: result.transaction_vout
+            }
+          }
+        });
+      }
+      return true;
+    } catch (error) {
+      elizaLogger5.error("Channel close failed:", error);
+      if (callback) {
+        callback({
+          text: `Error: ${error.message || "An error occurred"}`
+        });
+      }
+      return false;
+    }
+  },
+  template: closeChannelTemplate,
+  validate: async (runtime) => {
+    const cert = runtime.getSetting("LND_TLS_CERT");
+    const macaroon = runtime.getSetting("LND_MACAROON");
+    const socket = runtime.getSetting("LND_SOCKET");
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    if (!isValid2) {
+      elizaLogger5.error("Missing required LND credentials");
+    }
+    return isValid2;
+  },
+  examples: [
+    [
+      {
+        user: "user",
+        content: {
+          text: "Close channel with ID 123456",
+          action: "CLOSE_CHANNEL"
+        }
+      }
+    ]
+  ],
+  similes: ["CLOSE_CHANNEL", "SHUTDOWN_CHANNEL"]
+};
+
+// src/actions/openChannel.ts
+import {
+  composeContext as composeContext5,
+  generateObject as generateObject4,
+  ModelClass as ModelClass5,
+  elizaLogger as elizaLogger6
+} from "@elizaos/core";
+var OpenChannelAction = class {
+  constructor(lightningProvider) {
+    this.lightningProvider = lightningProvider;
+    this.lightningProvider = lightningProvider;
+    elizaLogger6.info("OpenChannelAction initialized");
+  }
+  async openChannel(params) {
+    elizaLogger6.info("OpenChannelAction.openChannel called with params:", {
+      local_tokens: params.local_tokens,
+      partner_public_key: params.partner_public_key,
+      is_private: params.is_private,
+      description: params.description
+    });
+    try {
+      if (!params.local_tokens || !params.partner_public_key) {
+        elizaLogger6.error("Validation failed: Missing required parameters", {
+          hasLocalTokens: !!params.local_tokens,
+          hasPartnerPublicKey: !!params.partner_public_key
+        });
+        throw new Error("local_tokens and partner_public_key are required");
+      }
+      const result = await this.lightningProvider.openChannel(params);
+      elizaLogger6.info("Channel opened successfully:", {
+        transaction_id: result.transaction_id,
+        transaction_vout: result.transaction_vout,
+        local_tokens: params.local_tokens,
+        partner_public_key: params.partner_public_key
+      });
+      return result;
+    } catch (error) {
+      elizaLogger6.error("Error in openChannel:", {
+        error: error.message,
+        stack: error.stack,
+        params
+      });
+      throw error;
+    }
+  }
+};
+var openChannelSchema = z.object({
+  local_tokens: z.number(),
+  partner_public_key: z.string(),
+  base_fee_mtokens: z.string().optional(),
+  chain_fee_tokens_per_vbyte: z.number().optional(),
+  cooperative_close_address: z.string().optional(),
+  description: z.string().optional(),
+  fee_rate: z.number().optional(),
+  give_tokens: z.number().optional(),
+  is_allowing_minimal_reserve: z.boolean().optional(),
+  is_max_funding: z.boolean().optional(),
+  is_private: z.boolean().optional(),
+  is_simplified_taproot: z.boolean().optional(),
+  is_trusted_funding: z.boolean().optional(),
+  min_confirmations: z.number().optional(),
+  min_htlc_mtokens: z.string().optional(),
+  partner_csv_delay: z.number().optional(),
+  partner_socket: z.string().optional()
+});
+var openChannelAction = {
+  name: "OPEN_CHANNEL",
+  description: "Open a new lightning network channel.",
+  handler: async (runtime, _message, state, _options, callback) => {
+    elizaLogger6.info("openChannel action handler called with params:", {
+      message: _message,
+      state,
+      options: _options,
+      hasCallback: !!callback
+    });
+    try {
+      const lightningProvider = await initLightningProvider(runtime);
+      elizaLogger6.info("LightningProvider initialized successfully");
+      const action = new OpenChannelAction(lightningProvider);
+      elizaLogger6.info("OpenChannelAction created");
+      const openChannelContext = composeContext5({
+        state,
+        template: openChannelTemplate
+      });
+      elizaLogger6.info("Bridge context composed:", { context: openChannelContext });
+      const content = await generateObject4({
+        runtime,
+        context: openChannelContext,
+        schema: openChannelSchema,
+        modelClass: ModelClass5.LARGE
+      });
+      elizaLogger6.info("Generated content:", { content });
+      const openChannelContent = content.object;
+      elizaLogger6.info("Parsed content:", openChannelContent);
+      if (!openChannelContent.local_tokens || !openChannelContent.partner_public_key) {
+        elizaLogger6.error("Validation failed: Missing required parameters", {
+          hasLocalTokens: !!openChannelContent.local_tokens,
+          hasPartnerPublicKey: !!openChannelContent.partner_public_key
+        });
+        if (callback) {
+          const errorResponse = {
+            text: "Error: local_tokens and partner_public_key are required"
+          };
+          elizaLogger6.info("Error callback response:", errorResponse);
+          callback(errorResponse);
+        }
+        return false;
+      }
+      const result = await action.openChannel(openChannelContent);
+      elizaLogger6.info("Channel opened successfully:", {
+        transaction_id: result.transaction_id,
+        transaction_vout: result.transaction_vout,
+        local_tokens: openChannelContent.local_tokens,
+        partner_public_key: openChannelContent.partner_public_key,
+        is_private: openChannelContent.is_private,
+        description: openChannelContent.description
+      });
+      if (callback) {
+        const addressInfo = openChannelContent.cooperative_close_address ? `
+Cooperative close address: ${openChannelContent.cooperative_close_address}` : "\nUsing automatically fetched cooperative close address";
+        const response = {
+          text: `Successfully opened channel with capacity ${openChannelContent.local_tokens} sats to ${openChannelContent.partner_public_key}.${addressInfo}
+Transaction ID: ${result.transaction_id}, Vout: ${result.transaction_vout}`,
+          content: {
+            success: true,
+            transaction: {
+              id: result.transaction_id,
+              vout: result.transaction_vout
+            }
+          }
+        };
+        elizaLogger6.info("Success callback response:", response);
+        callback(response);
+      }
+      return true;
+    } catch (error) {
+      elizaLogger6.error("Error in openChannel handler:", {
+        error: error.message,
+        stack: error.stack,
+        message: _message,
+        state,
+        options: _options
+      });
+      if (callback) {
+        const errorResponse = {
+          text: `Error: ${error.message || "An error occurred"}`
+        };
+        elizaLogger6.info("Error callback response:", errorResponse);
+        callback(errorResponse);
+      }
+      return false;
+    }
+  },
+  template: openChannelTemplate,
+  validate: async (runtime) => {
+    elizaLogger6.info("Validating openChannel action");
+    const cert = runtime.getSetting("LND_TLS_CERT");
+    const macaroon = runtime.getSetting("LND_MACAROON");
+    const socket = runtime.getSetting("LND_SOCKET");
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    elizaLogger6.info("Validation result:", {
+      isValid: isValid2,
+      hasCert: !!cert,
+      hasMacaroon: !!macaroon,
+      hasSocket: !!socket
+    });
+    return isValid2;
+  },
+  examples: [
+    [
+      {
+        user: "user",
+        content: {
+          text: "Open a channel with 1000000 sats to 03xxxxxx",
+          action: "OPEN_CHANNEL"
+        }
+      }
+    ]
+  ],
+  similes: ["OPEN_CHANNEL", "CREATE_CHANNEL"]
+};
+
+// src/actions/createChainAddress.ts
+import {
+  composeContext as composeContext6,
+  generateObject as generateObject5,
+  ModelClass as ModelClass6,
+  elizaLogger as elizaLogger7
+} from "@elizaos/core";
+var CreateChainAddressAction = class {
+  constructor(lightningProvider) {
+    this.lightningProvider = lightningProvider;
+    this.lightningProvider = lightningProvider;
+  }
+  async createChainAddress(params) {
+    try {
+      if (params.format && !["p2wpkh", "np2wpkh", "p2tr"].includes(params.format)) {
+        elizaLogger7.error("Invalid address format", {
+          format: params.format,
+          validFormats: ["p2wpkh", "np2wpkh", "p2tr"]
+        });
+        throw new Error("Invalid address format. Must be one of: p2wpkh, np2wpkh, p2tr");
+      }
+      const result = await this.lightningProvider.createChainAddress(params);
+      elizaLogger7.info("Chain address created:", {
+        format: params.format || "p2wpkh"
+      });
+      return result;
+    } catch (error) {
+      elizaLogger7.error("Create chain address failed:", error);
+      throw error;
+    }
+  }
+};
+var createChainAddressSchema = z.object({
+  format: z.enum(["p2wpkh", "np2wpkh", "p2tr"]).optional(),
+  is_unused: z.boolean().optional()
+});
+var createChainAddressAction = {
+  name: "CREATE_CHAIN_ADDRESS",
+  description: "Create a new Bitcoin chain address.",
+  handler: async (runtime, _message, state, _options, callback) => {
+    try {
+      const lightningProvider = await initLightningProvider(runtime);
+      const action = new CreateChainAddressAction(lightningProvider);
+      const createChainAddressContext = composeContext6({
+        state,
+        template: createChainAddressTemplate
+      });
+      const content = await generateObject5({
+        runtime,
+        context: createChainAddressContext,
+        schema: createChainAddressSchema,
+        modelClass: ModelClass6.LARGE
+      });
+      const createChainAddressContent = content.object;
+      if (createChainAddressContent.format && !["p2wpkh", "np2wpkh", "p2tr"].includes(createChainAddressContent.format)) {
+        elizaLogger7.error("Invalid address format", {
+          format: createChainAddressContent.format
+        });
+        if (callback) {
+          callback({
+            text: "Error: Invalid address format. Must be one of: p2wpkh, np2wpkh, p2tr"
+          });
+        }
+        return false;
+      }
+      const result = await action.createChainAddress(createChainAddressContent);
+      if (callback) {
+        const formatInfo = createChainAddressContent.format ? ` (${createChainAddressContent.format})` : " (p2wpkh)";
+        callback({
+          text: `Successfully created new chain address${formatInfo}: ${result.address}`,
+          content: {
+            success: true,
+            address: result.address
+          }
+        });
+      }
+      return true;
+    } catch (error) {
+      elizaLogger7.error("Create chain address failed:", error);
+      if (callback) {
+        callback({
+          text: `Error: ${error.message || "An error occurred"}`
+        });
+      }
+      return false;
+    }
+  },
+  template: createChainAddressTemplate,
+  validate: async (runtime) => {
+    const cert = runtime.getSetting("LND_TLS_CERT");
+    const macaroon = runtime.getSetting("LND_MACAROON");
+    const socket = runtime.getSetting("LND_SOCKET");
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    if (!isValid2) {
+      elizaLogger7.error("Missing required LND credentials");
+    }
+    return isValid2;
+  },
+  examples: [
+    [
+      {
+        user: "user",
+        content: {
+          text: "Create a new p2wpkh address",
+          action: "CREATE_CHAIN_ADDRESS"
+        }
+      }
+    ]
+  ],
+  similes: ["CREATE_CHAIN_ADDRESS", "NEW_ADDRESS", "GENERATE_ADDRESS"]
+};
+
+// src/actions/getChainBalance.ts
+import {
+  composeContext as composeContext7,
+  generateObject as generateObject6,
+  ModelClass as ModelClass7,
+  elizaLogger as elizaLogger8
+} from "@elizaos/core";
+var GetChainBalanceAction = class {
+  constructor(lightningProvider) {
+    this.lightningProvider = lightningProvider;
+    this.lightningProvider = lightningProvider;
+  }
+  async getChainBalance() {
+    try {
+      const result = await this.lightningProvider.getChainBalance();
+      elizaLogger8.info("Chain balance:", {
+        balance: result.chain_balance
+      });
+      return result;
+    } catch (error) {
+      elizaLogger8.error("Get chain balance failed:", error);
+      throw error;
+    }
+  }
+};
+var getChainBalanceSchema = z.object({});
+var getChainBalanceAction = {
+  name: "GET_CHAIN_BALANCE",
+  description: "Get the total confirmed chain balance.",
+  handler: async (runtime, _message, state, _options, callback) => {
+    try {
+      const lightningProvider = await initLightningProvider(runtime);
+      const action = new GetChainBalanceAction(lightningProvider);
+      const getChainBalanceContext = composeContext7({
+        state,
+        template: getChainBalanceTemplate
+      });
+      const content = await generateObject6({
+        runtime,
+        context: getChainBalanceContext,
+        schema: getChainBalanceSchema,
+        modelClass: ModelClass7.LARGE
+      });
+      const result = await action.getChainBalance();
+      if (callback) {
+        callback({
+          text: `Current chain balance: ${result.chain_balance.toLocaleString()} sats`,
+          content: {
+            success: true,
+            balance: result.chain_balance
+          }
+        });
+      }
+      return true;
+    } catch (error) {
+      elizaLogger8.error("Get chain balance failed:", error);
+      if (callback) {
+        callback({
+          text: `Error: ${error.message || "An error occurred"}`
+        });
+      }
+      return false;
+    }
+  },
+  template: getChainBalanceTemplate,
+  validate: async (runtime) => {
+    const cert = runtime.getSetting("LND_TLS_CERT");
+    const macaroon = runtime.getSetting("LND_MACAROON");
+    const socket = runtime.getSetting("LND_SOCKET");
+    const isValid2 = !!cert && !!macaroon && !!socket;
+    if (!isValid2) {
+      elizaLogger8.error("Missing required LND credentials");
+    }
+    return isValid2;
+  },
+  examples: [
+    [
+      {
+        user: "user",
+        content: {
+          text: "Show me my chain balance",
+          action: "GET_CHAIN_BALANCE"
+        }
+      }
+    ]
+  ],
+  similes: ["GET_CHAIN_BALANCE", "CHECK_BALANCE", "SHOW_BALANCE"]
+};
+
 // src/index.ts
 var lightningPlugin = {
   name: "lightning",
   description: "lightning integration plugin",
-  actions: [createInvoiceAction, payInvoiceAction]
+  actions: [
+    createInvoiceAction,
+    payInvoiceAction,
+    getChannelsAction,
+    closeChannelAction,
+    openChannelAction,
+    createChainAddressAction,
+    getChainBalanceAction
+  ]
 };
 var index_default = lightningPlugin;
 export {
