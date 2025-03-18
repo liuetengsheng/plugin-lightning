@@ -23,12 +23,26 @@ export class CloseChannelAction {
 
     async closeChannel(args: CloseChannelArgs): Promise<CloseChannelResult> {
         try {
+            // 验证基本参数
+            if (!args.id && !(args.transaction_id && args.transaction_vout)) {
+                throw new Error("Either channel id or transaction details are required");
+            }
+
+            // 验证协作关闭所需的参数
+            if (!args.is_force_close && (!args.public_key || !args.socket)) {
+                throw new Error("Cooperative close requires public_key and socket");
+            }
+
             elizaLogger.info("Closing channel:", {
                 id: args.id || `${args.transaction_id}:${args.transaction_vout}`,
                 type: args.is_force_close ? "force" : "cooperative"
             });
             
-            const result = await this.lightningProvider.closeChannel(args);
+            const result = await this.lightningProvider.closeChannel({
+                ...args,
+                is_force_close: args.is_force_close || false
+            });
+
             elizaLogger.info("Channel closed:", { 
                 transaction_id: result.transaction_id 
             });
@@ -40,20 +54,28 @@ export class CloseChannelAction {
     }
 }
 
-// 定义 schema 类型
+// 修改 schema 定义，添加必要的验证
 const closeChannelSchema = z.object({
     id: z.string().optional(),
     transaction_id: z.string().optional(),
     transaction_vout: z.number().optional(),
-    address: z.string().optional(),
-    is_force_close: z.boolean().optional(),
-    is_graceful_close: z.boolean().optional(),
-    max_tokens_per_vbyte: z.number().optional(),
-    tokens_per_vbyte: z.number().optional(),
-    target_confirmations: z.number().optional(),
+    is_force_close: z.boolean().optional().default(false),
+    // 协作关闭的参数
     public_key: z.string().optional(),
     socket: z.string().optional(),
-});
+    // 可选参数
+    address: z.string().optional(),
+    target_confirmations: z.number().optional(),
+    tokens_per_vbyte: z.number().optional(),
+    is_graceful_close: z.boolean().optional(),
+    max_tokens_per_vbyte: z.number().optional()
+}).refine(
+    data => !!(data.id || (data.transaction_id && data.transaction_vout)),
+    "Either channel id or transaction details are required"
+).refine(
+    data => data.is_force_close || !!(data.public_key && data.socket),
+    "Cooperative close requires public_key and socket"
+);
 
 type CloseChannelContent = z.infer<typeof closeChannelSchema>;
 

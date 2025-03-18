@@ -116,7 +116,6 @@ export class LightningProvider {
                 throw new Error("Either channel id or transaction details are required");
             }
 
-            // 记录操作信息
             elizaLogger.info("Closing channel:", { 
                 type: args.is_force_close ? "force" : "cooperative",
                 id: args.id || `${args.transaction_id}:${args.transaction_vout}`
@@ -146,9 +145,11 @@ export class LightningProvider {
                         transaction_id: args.transaction_id!,
                         transaction_vout: args.transaction_vout!
                     }),
-                    ...(args.address ? { address: args.address } : {}),
-                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {}),
-                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {})
+                    address: args.address,
+                    target_confirmations: args.target_confirmations,
+                    tokens_per_vbyte: args.tokens_per_vbyte,
+                    public_key: args.public_key!,
+                    socket: args.socket!
                 };
                 const result = await closeChannel(coopCloseArgs);
                 elizaLogger.info("Channel cooperatively closed:", { transaction_id: result.transaction_id });
