@@ -116,45 +116,31 @@ export class LightningProvider {
                 throw new Error("Either channel id or transaction details are required");
             }
 
-            elizaLogger.info("Closing channel:", { 
-                type: args.is_force_close ? "force" : "cooperative",
-                id: args.id || `${args.transaction_id}:${args.transaction_vout}`
+            elizaLogger.info("Closing channel:", {
+                id: args.id || `${args.transaction_id}:${args.transaction_vout}`,
+                type: args.is_force_close ? "force" : "cooperative"
             });
 
-            // 强制关闭的参数
-            if (args.is_force_close) {
-                const forceCloseArgs = {
-                    lnd: this.lndClient,
-                    is_force_close: true as const,
-                    ...(args.id ? { id: args.id } : {
-                        transaction_id: args.transaction_id!,
-                        transaction_vout: args.transaction_vout!
-                    })
-                };
-                const result = await closeChannel(forceCloseArgs);
-                elizaLogger.info("Channel force closed:", { transaction_id: result.transaction_id });
-                return result;
-            } 
-            
-            // 协作关闭的参数
-            else {
-                const coopCloseArgs = {
-                    lnd: this.lndClient,
-                    is_force_close: false as const,
-                    ...(args.id ? { id: args.id } : {
-                        transaction_id: args.transaction_id!,
-                        transaction_vout: args.transaction_vout!
-                    }),
+            const closeArgs = {
+                lnd: this.lndClient,
+                is_force_close: args.is_force_close || false,
+                ...(args.id ? { id: args.id } : {
+                    transaction_id: args.transaction_id!,
+                    transaction_vout: args.transaction_vout!
+                }),
+                // 根据需要选择性添加参数
+                ...(args.is_force_close ? {} : {
                     address: args.address,
-                    target_confirmations: args.target_confirmations,
-                    tokens_per_vbyte: args.tokens_per_vbyte,
-                    public_key: args.public_key!,
-                    socket: args.socket!
-                };
-                const result = await closeChannel(coopCloseArgs);
-                elizaLogger.info("Channel cooperatively closed:", { transaction_id: result.transaction_id });
-                return result;
-            }
+                    public_key: args.public_key,
+                    socket: args.socket,
+                    ...(args.tokens_per_vbyte ? { tokens_per_vbyte: args.tokens_per_vbyte } : {}),
+                    ...(args.target_confirmations ? { target_confirmations: args.target_confirmations } : {})
+                })
+            };
+
+            const result = await closeChannel(closeArgs);
+            elizaLogger.info("Channel closed:", { transaction_id: result.transaction_id });
+            return result;
         } catch (error) {
             elizaLogger.error("Close channel failed:", error);
             throw error;
