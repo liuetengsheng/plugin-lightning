@@ -133,12 +133,12 @@ export const payInvoiceAction = {
             content?: { success: boolean };
         }) => void
     ) => {
-        elizaLogger.info("payInvoice action handler called with params:", {
-            message: _message,
-            state,
-            options: _options,
-            hasCallback: !!callback
-        });
+        // elizaLogger.info("payInvoice action handler called with params:", {
+        //     message: _message,
+        //     state,
+        //     options: _options,
+        //     hasCallback: !!callback
+        // });
         
         try {
             const lightningProvider = await initLightningProvider(runtime);
@@ -200,11 +200,10 @@ export const payInvoiceAction = {
             return true;
         } catch (error) {
             elizaLogger.error("Error in payInvoice handler:", {
-                error: error.message,
-                stack: error.stack,
-                message: _message,
-                state,
-                options: _options
+                error: typeof error === 'object' ? error : { message: String(error) },
+                errorString: String(error),
+                errorJSON: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+                stack: error?.stack
             });
             if (callback) {
                 const errorResponse = {
